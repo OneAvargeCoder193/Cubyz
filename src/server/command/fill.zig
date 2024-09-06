@@ -96,6 +96,24 @@ pub fn execute(args: []const u8, source: *User) void {
 	const block: u16 = blocks.getByID(blockString);
 	const b = blocks.Block.fromInt(block);
 
+	if (x2 < x1) {
+		const tmp = x1;
+		x1 = x2;
+		x2 = tmp;
+	}
+
+	if (y2 < y1) {
+		const tmp = y1;
+		y1 = y2;
+		y2 = tmp;
+	}
+
+	if (z2 < z1) {
+		const tmp = z1;
+		z1 = z2;
+		z2 = tmp;
+	}
+
 	var x: i32 = x1;
 	while (x <= x2) : (x += 1) {
 		var y: i32 = y1;
