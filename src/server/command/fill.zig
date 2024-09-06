@@ -13,7 +13,7 @@ pub const usage = "/fill <x1> <y1> <z1> <x2> <y2> <z2> <block>";
 pub fn execute(args: []const u8, source: *User) void {
 	var split = std.mem.splitScalar(u8, args, ' ');
 
-	const x1 = cmd_utils.readCoordInt(i32, &split, .x, source) catch |err| switch (err) {
+	var x1 = cmd_utils.readCoordInt(i32, &split, .x, source) catch |err| switch (err) {
 		cmd_utils.CommandError.NotEnoughArgs => {
 			source.sendMessage("#ff0000Too few arguments for command /fill");
 			return;
@@ -24,7 +24,7 @@ pub fn execute(args: []const u8, source: *User) void {
 		}
 	};
 
-	const y1 = cmd_utils.readCoordInt(i32, &split, .y, source) catch |err| switch (err) {
+	var y1 = cmd_utils.readCoordInt(i32, &split, .y, source) catch |err| switch (err) {
 		cmd_utils.CommandError.NotEnoughArgs => {
 			source.sendMessage("#ff0000Too few arguments for command /fill");
 			return;
@@ -35,7 +35,7 @@ pub fn execute(args: []const u8, source: *User) void {
 		}
 	};
 
-	const z1 = cmd_utils.readCoordInt(i32, &split, .z, source) catch |err| switch (err) {
+	var z1 = cmd_utils.readCoordInt(i32, &split, .z, source) catch |err| switch (err) {
 		cmd_utils.CommandError.NotEnoughArgs => {
 			source.sendMessage("#ff0000Too few arguments for command /fill");
 			return;
@@ -46,7 +46,7 @@ pub fn execute(args: []const u8, source: *User) void {
 		}
 	};
 
-	const x2 = cmd_utils.readCoordInt(i32, &split, .x, source) catch |err| switch (err) {
+	var x2 = cmd_utils.readCoordInt(i32, &split, .x, source) catch |err| switch (err) {
 		cmd_utils.CommandError.NotEnoughArgs => {
 			source.sendMessage("#ff0000Too few arguments for command /fill");
 			return;
@@ -57,7 +57,7 @@ pub fn execute(args: []const u8, source: *User) void {
 		}
 	};
 
-	const y2 = cmd_utils.readCoordInt(i32, &split, .y, source) catch |err| switch (err) {
+	var y2 = cmd_utils.readCoordInt(i32, &split, .y, source) catch |err| switch (err) {
 		cmd_utils.CommandError.NotEnoughArgs => {
 			source.sendMessage("#ff0000Too few arguments for command /fill");
 			return;
@@ -68,7 +68,7 @@ pub fn execute(args: []const u8, source: *User) void {
 		}
 	};
 
-	const z2 = cmd_utils.readCoordInt(i32, &split, .z, source) catch |err| switch (err) {
+	var z2 = cmd_utils.readCoordInt(i32, &split, .z, source) catch |err| switch (err) {
 		cmd_utils.CommandError.NotEnoughArgs => {
 			source.sendMessage("#ff0000Too few arguments for command /fill");
 			return;
