@@ -87,15 +87,21 @@ pub fn execute(args: []const u8, source: *User) void {
 		cmd_utils.CommandError.ParseFailed => unreachable
 	};
 
+	if (!blocks.hasRegistered(blockString)) {
+		const msg = std.fmt.allocPrint(main.stackAllocator.allocator, "#ff0000Could not find block {s}", .{blockString}) catch unreachable;
+		defer main.stackAllocator.free(msg);
+		source.sendMessage(msg);
+		return;
+	}
 	const block: u16 = blocks.getByID(blockString);
 	const b = blocks.Block.fromInt(block);
 
 	var x: i32 = x1;
-	while (x < x2) : (x += 1) {
+	while (x <= x2) : (x += 1) {
 		var y: i32 = y1;
-		while (y < y2) : (y += 1) {
+		while (y <= y2) : (y += 1) {
 			var z: i32 = z1;
-			while (z < z2) : (z += 1) {
+			while (z <= z2) : (z += 1) {
 				main.server.world.?.updateBlock(x, y, z, b);
 			}
 		}
