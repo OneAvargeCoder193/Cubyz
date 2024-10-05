@@ -706,70 +706,72 @@ test "number parsing" {
 }
 
 test "element parsing" {
+	var wrap = main.utils.ErrorHandlingAllocator.init(std.testing.allocator);
+	const allocator = wrap.allocator();
 	// Integers:
 	var index: u32 = 0;
-	try std.testing.expectEqual(Parser.parseElement(std.testing.allocator, "0", &index), JsonElement{.JsonInt = 0});
+	try std.testing.expectEqual(Parser.parseElement(allocator, "0", &index), JsonElement{.JsonInt = 0});
 	index = 0;
-	try std.testing.expectEqual(Parser.parseElement(std.testing.allocator, "0xff34786056.0, true", &index), JsonElement{.JsonInt = 0xff34786056});
+	try std.testing.expectEqual(Parser.parseElement(allocator, "0xff34786056.0, true", &index), JsonElement{.JsonInt = 0xff34786056});
 	// Floats:
 	index = 9;
-	try std.testing.expectEqual(Parser.parseElement(std.testing.allocator, "{\"abcd\": 0.0,}", &index), JsonElement{.JsonFloat = 0.0});
+	try std.testing.expectEqual(Parser.parseElement(allocator, "{\"abcd\": 0.0,}", &index), JsonElement{.JsonFloat = 0.0});
 	index = 0;
-	try std.testing.expectApproxEqAbs((Parser.parseElement(std.testing.allocator, "1543.234589e10", &index)).JsonFloat, 1543.234589e10, 1.0);
+	try std.testing.expectApproxEqAbs((Parser.parseElement(allocator, "1543.234589e10", &index)).JsonFloat, 1543.234589e10, 1.0);
 	index = 5;
-	try std.testing.expectApproxEqAbs((Parser.parseElement(std.testing.allocator, "_____0.0000000000675849301354e10abcdfe", &index)).JsonFloat, 0.675849301354, 1e-10);
+	try std.testing.expectApproxEqAbs((Parser.parseElement(allocator, "_____0.0000000000675849301354e10abcdfe", &index)).JsonFloat, 0.675849301354, 1e-10);
 	// Null:
 	index = 0;
-	try std.testing.expectEqual(Parser.parseElement(std.testing.allocator, "null", &index), JsonElement{.JsonNull={}});
+	try std.testing.expectEqual(Parser.parseElement(allocator, "null", &index), JsonElement{.JsonNull={}});
 	// true:
 	index = 0;
-	try std.testing.expectEqual(Parser.parseElement(std.testing.allocator, "true", &index), JsonElement{.JsonBool=true});
+	try std.testing.expectEqual(Parser.parseElement(allocator, "true", &index), JsonElement{.JsonBool=true});
 	// false:
 	index = 0;
-	try std.testing.expectEqual(Parser.parseElement(std.testing.allocator, "false", &index), JsonElement{.JsonBool=false});
+	try std.testing.expectEqual(Parser.parseElement(allocator, "false", &index), JsonElement{.JsonBool=false});
 
 	// String:
 	index = 0;
-	var result: JsonElement = Parser.parseElement(std.testing.allocator, "\"abcd\\\"\\\\ħσ→ ↑Φ∫€ ⌬ ε→Π\"", &index);
+	var result: JsonElement = Parser.parseElement(allocator, "\"abcd\\\"\\\\ħσ→ ↑Φ∫€ ⌬ ε→Π\"", &index);
 	try std.testing.expectEqualStrings("abcd\"\\ħσ→ ↑Φ∫€ ⌬ ε→Π", result.as([]const u8, ""));
-	result.free(std.testing.allocator);
+	result.free(allocator);
 	index = 0;
-	result = Parser.parseElement(std.testing.allocator, "\"12345", &index);
+	result = Parser.parseElement(allocator, "\"12345", &index);
 	try std.testing.expectEqualStrings("12345", result.as([]const u8, ""));
-	result.free(std.testing.allocator);
+	result.free(allocator);
 
 	// Object:
 	index = 0;
-	result = Parser.parseElement(std.testing.allocator, "{\"name\": 1}", &index);
-	try std.testing.expectEqual(JsonType.JsonObject, result);
+	result = Parser.parseElement(allocator, "{\"name\": 1}", &index);
+	try std.testing.expectEqual(JsonType.JsonObject, std.meta.activeTag(result));
 	try std.testing.expectEqual(result.JsonObject.get("name"), JsonElement{.JsonInt = 1});
-	result.free(std.testing.allocator);
+	result.free(allocator);
 	index = 0;
-	result = Parser.parseElement(std.testing.allocator, "{\"object\":{},}", &index);
-	try std.testing.expectEqual(JsonType.JsonObject, result);
-	try std.testing.expectEqual(JsonType.JsonObject, result.JsonObject.get("object") orelse JsonType.JsonNull);
-	result.free(std.testing.allocator);
+	result = Parser.parseElement(allocator, "{\"object\":{},}", &index);
+	try std.testing.expectEqual(JsonType.JsonObject, std.meta.activeTag(result));
+	try std.testing.expectEqual(JsonType.JsonObject, std.meta.activeTag(result.JsonObject.get("object") orelse JsonType.JsonNull));
+	result.free(allocator);
 	index = 0;
-	result = Parser.parseElement(std.testing.allocator, "{   \"object1\"   :   \"\"  \n, \"object2\"  :\t{\n},\"object3\"   :1.0e4\t,\"\nobject1\":{},\"\tobject1θ\":[],}", &index);
-	try std.testing.expectEqual(JsonType.JsonObject, result);
-	try std.testing.expectEqual(JsonType.JsonFloat, result.JsonObject.get("object3") orelse JsonType.JsonNull);
-	try std.testing.expectEqual(JsonType.JsonStringOwned, result.JsonObject.get("object1") orelse JsonType.JsonNull);
-	try std.testing.expectEqual(JsonType.JsonObject, result.JsonObject.get("\nobject1") orelse JsonType.JsonNull);
-	try std.testing.expectEqual(JsonType.JsonArray, result.JsonObject.get("\tobject1θ") orelse JsonType.JsonNull);
-	result.free(std.testing.allocator);
+	result = Parser.parseElement(allocator, "{   \"object1\"   :   \"\"  \n, \"object2\"  :\t{\n},\"object3\"   :1.0e4\t,\"\nobject1\":{},\"\tobject1θ\":[],}", &index);
+	try std.testing.expectEqual(JsonType.JsonObject, std.meta.activeTag(result));
+	try std.testing.expectEqual(JsonType.JsonFloat, std.meta.activeTag(result.JsonObject.get("object3") orelse JsonType.JsonNull));
+	try std.testing.expectEqual(JsonType.JsonStringOwned, std.meta.activeTag(result.JsonObject.get("object1") orelse JsonType.JsonNull));
+	try std.testing.expectEqual(JsonType.JsonObject, std.meta.activeTag(result.JsonObject.get("\nobject1") orelse JsonType.JsonNull));
+	try std.testing.expectEqual(JsonType.JsonArray, std.meta.activeTag(result.JsonObject.get("\tobject1θ") orelse JsonType.JsonNull));
+	result.free(allocator);
 
 	//Array:
 	index = 0;
-	result = Parser.parseElement(std.testing.allocator, "[\"name\",1]", &index);
-	try std.testing.expectEqual(JsonType.JsonArray, result);
-	try std.testing.expectEqual(JsonType.JsonStringOwned, result.JsonArray.items[0]);
+	result = Parser.parseElement(allocator, "[\"name\",1]", &index);
+	try std.testing.expectEqual(JsonType.JsonArray, std.meta.activeTag(result));
+	try std.testing.expectEqual(JsonType.JsonStringOwned, std.meta.activeTag(result.JsonArray.items[0]));
 	try std.testing.expectEqual(JsonElement{.JsonInt=1}, result.JsonArray.items[1]);
-	result.free(std.testing.allocator);
+	result.free(allocator);
 	index = 0;
-	result = Parser.parseElement(std.testing.allocator, "[   \"name\"\t1\n,    17.1]", &index);
-	try std.testing.expectEqual(JsonType.JsonArray, result);
-	try std.testing.expectEqual(JsonType.JsonStringOwned, result.JsonArray.items[0]);
+	result = Parser.parseElement(allocator, "[   \"name\"\t1\n,    17.1]", &index);
+	try std.testing.expectEqual(JsonType.JsonArray, std.meta.activeTag(result));
+	try std.testing.expectEqual(JsonType.JsonStringOwned, std.meta.activeTag(result.JsonArray.items[0]));
 	try std.testing.expectEqual(JsonElement{.JsonInt=1}, result.JsonArray.items[1]);
 	try std.testing.expectEqual(JsonElement{.JsonFloat=17.1}, result.JsonArray.items[2]);
-	result.free(std.testing.allocator);
+	result.free(allocator);
 }
