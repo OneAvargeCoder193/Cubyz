@@ -199,7 +199,7 @@ pub fn renderWorld(world: *World, ambientLight: Vec3f, skyColor: Vec3f, playerPo
 
 	gpu_performance_measuring.startQuery(.chunk_rendering_preparation);
 	const direction = crosshairDirection(game.camera.viewMatrix, lastFov, lastWidth, lastHeight);
-	MeshSelection.select(playerPos, direction, game.Player.inventory.items[game.Player.selectedSlot]);
+	MeshSelection.select(playerPos, direction, game.Player.inventory.getItem(game.Player.selectedSlot));
 	MeshSelection.render(game.projectionMatrix, game.camera.viewMatrix, playerPos);
 
 	chunk_meshing.beginRender();
@@ -684,7 +684,7 @@ pub const MeshSelection = struct { // MARK: MeshSelection
 	var selectionMax: Vec3f = undefined;
 	var lastPos: Vec3d = undefined;
 	var lastDir: Vec3f = undefined;
-	pub fn select(pos: Vec3d, _dir: Vec3f, inventoryStack: main.items.ItemStack) void {
+	pub fn select(pos: Vec3d, _dir: Vec3f, item: ?main.items.Item) void {
 		lastPos = pos;
 		const dir: Vec3d = @floatCast(_dir);
 		lastDir = _dir;
@@ -709,7 +709,7 @@ pub const MeshSelection = struct { // MARK: MeshSelection
 			if(block.typ != 0) {
 				if(block.blockClass() != .fluid and block.blockClass() != .air) { // TODO: Buckets could select fluids
 					const relativePlayerPos: Vec3f = @floatCast(pos - @as(Vec3d, @floatFromInt(voxelPos)));
-					if(block.mode().rayIntersection(block, inventoryStack, voxelPos, relativePlayerPos, _dir)) |intersection| {
+					if(block.mode().rayIntersection(block, item, voxelPos, relativePlayerPos, _dir)) |intersection| {
 						if(intersection.distance <= closestDistance) {
 							selectedBlockPos = voxelPos;
 							selectionMin = intersection.min;
@@ -752,7 +752,8 @@ pub const MeshSelection = struct { // MARK: MeshSelection
 		return true; // TODO: Check other entities
 	}
 
-	pub fn placeBlock(inventoryStack: *main.items.ItemStack) void {
+	pub fn placeBlock(inventoryStack: *main.items.ItemStack, unlimitedBlocks: bool) void {
+		const removeAmount: i32 = if(unlimitedBlocks) 0 else -1;
 		if(selectedBlockPos) |selectedPos| {
 			var block = mesh_storage.getBlock(selectedPos[0], selectedPos[1], selectedPos[2]) orelse return;
 			if(inventoryStack.item) |item| {
@@ -767,7 +768,7 @@ pub const MeshSelection = struct { // MARK: MeshSelection
 								if(rotationMode.generateData(main.game.world.?, selectedPos, relPos, lastDir, neighborDir, &block, false)) {
 									if(!canPlaceBlock(selectedPos, block)) return;
 									updateBlockAndSendUpdate(selectedPos[0], selectedPos[1], selectedPos[2], block);
-									_ = inventoryStack.add(item, @as(i32, -1));
+									_ = inventoryStack.add(item, @as(i32, removeAmount));
 									return;
 								}
 							}
@@ -780,7 +781,7 @@ pub const MeshSelection = struct { // MARK: MeshSelection
 								if(rotationMode.generateData(main.game.world.?, neighborPos, relPos, lastDir, neighborDir, &block, false)) {
 									if(!canPlaceBlock(neighborPos, block)) return;
 									updateBlockAndSendUpdate(neighborPos[0], neighborPos[1], neighborPos[2], block);
-									_ = inventoryStack.add(item, @as(i32, -1));
+									_ = inventoryStack.add(item, @as(i32, removeAmount));
 									return;
 								}
 							} else {
@@ -790,7 +791,7 @@ pub const MeshSelection = struct { // MARK: MeshSelection
 								if(rotationMode.generateData(main.game.world.?, neighborPos, relPos, lastDir, neighborDir, &block, true)) {
 									if(!canPlaceBlock(neighborPos, block)) return;
 									updateBlockAndSendUpdate(neighborPos[0], neighborPos[1], neighborPos[2], block);
-									_ = inventoryStack.add(item, @as(i32, -1));
+									_ = inventoryStack.add(item, @as(i32, removeAmount));
 									return;
 								}
 							}

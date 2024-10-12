@@ -130,7 +130,6 @@ const ChunkManager = struct { // MARK: ChunkManager
 
 	const ChunkLoadTask = struct { // MARK: ChunkLoadTask
 		pos: ChunkPosition,
-		creationTime: i64,
 		source: Source,
 
 		const vtable = utils.ThreadPool.VTable{
@@ -144,7 +143,6 @@ const ChunkManager = struct { // MARK: ChunkManager
 			const task = main.globalAllocator.create(ChunkLoadTask);
 			task.* = ChunkLoadTask {
 				.pos = pos,
-				.creationTime = std.time.milliTimestamp(),
 				.source = source,
 			};
 			main.threadPool.addTask(task, &vtable);
@@ -157,22 +155,20 @@ const ChunkManager = struct { // MARK: ChunkManager
 			}
 		}
 
-		pub fn isStillNeeded(self: *ChunkLoadTask, milliTime: i64) bool {
+		pub fn isStillNeeded(self: *ChunkLoadTask) bool {
 			switch(self.source) { // Remove the task if the player disconnected
 				.user => |user| if(!user.connected.load(.unordered)) return false,
 				.entityChunk => |ch| if(ch.refCount.load(.monotonic) == 2) return false,
 			}
-			if(milliTime - self.creationTime > 10000) { // Only remove stuff after 10 seconds to account for trouble when for example teleporting.
-				switch(self.source) { // Remove the task if it's far enough away from the player:
-					.user => |user| {
-						const minDistSquare = self.pos.getMinDistanceSquared(user.player.pos);
-						//                                                                  ↓ Margin for error. (diagonal of 1 chunk)
-						var targetRenderDistance = (@as(f32, @floatFromInt(user.renderDistance*chunk.chunkSize)) + @as(f32, @floatFromInt(chunk.chunkSize))*@sqrt(3.0));
-						targetRenderDistance *= @as(f32, @floatFromInt(self.pos.voxelSize));
-						return minDistSquare <= targetRenderDistance*targetRenderDistance;
-					},
-					.entityChunk => {},
-				}
+			switch(self.source) { // Remove the task if it's far enough away from the player:
+				.user => |user| {
+					const minDistSquare = self.pos.getMinDistanceSquared(user.clientUpdatePos);
+					//                                                                              ↓ Margin for error. (diagonal of 1 chunk)
+					var targetRenderDistance: i64 = @as(i64, user.renderDistance)*chunk.chunkSize + @as(i64, @intFromFloat(@as(comptime_int, chunk.chunkSize)*@sqrt(3.0)));
+					targetRenderDistance *= self.pos.voxelSize;
+					return minDistSquare <= targetRenderDistance*targetRenderDistance;
+				},
+				.entityChunk => {},
 			}
 			return true;
 		}
@@ -193,7 +189,6 @@ const ChunkManager = struct { // MARK: ChunkManager
 
 	const LightMapLoadTask = struct { // MARK: LightMapLoadTask
 		pos: terrain.SurfaceMap.MapFragmentPosition,
-		creationTime: i64,
 		source: ?*User,
 
 		const vtable = utils.ThreadPool.VTable{
@@ -207,7 +202,6 @@ const ChunkManager = struct { // MARK: ChunkManager
 			const task = main.globalAllocator.create(LightMapLoadTask);
 			task.* = LightMapLoadTask {
 				.pos = pos,
-				.creationTime = std.time.milliTimestamp(),
 				.source = source,
 			};
 			main.threadPool.addTask(task, &vtable);
@@ -221,7 +215,7 @@ const ChunkManager = struct { // MARK: ChunkManager
 			}
 		}
 
-		pub fn isStillNeeded(self: *LightMapLoadTask, _: i64) bool {
+		pub fn isStillNeeded(self: *LightMapLoadTask) bool {
 			_ = self; // TODO: Do these tasks need to be culled?
 			return true;
 		}
@@ -585,7 +579,7 @@ pub const ServerWorld = struct { // MARK: ServerWorld
 			return std.math.floatMax(f32);
 		}
 
-		pub fn isStillNeeded(_: *RegenerateLODTask, _: i64) bool {
+		pub fn isStillNeeded(_: *RegenerateLODTask) bool {
 			return true;
 		}
 

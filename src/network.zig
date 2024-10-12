@@ -150,72 +150,50 @@ const Request = struct {
 /// Reference: https://datatracker.ietf.org/doc/html/rfc5389
 const STUN = struct { // MARK: STUN
 	const ipServerList = [_][]const u8 {
-		"iphone-stun.strato-iphone.de:3478",
-		"stun.12connect.com:3478",
 		"stun.12voip.com:3478",
 		"stun.1und1.de:3478",
 		"stun.acrobits.cz:3478",
 		"stun.actionvoip.com:3478",
-		"stun.altar.com.pl:3478",
 		"stun.antisip.com:3478",
 		"stun.avigora.fr:3478",
 		"stun.bluesip.net:3478",
 		"stun.cablenet-as.net:3478",
 		"stun.callromania.ro:3478",
-		"stun.callwithus.com:3478",
 		"stun.cheapvoip.com:3478",
-		"stun.cloopen.com:3478",
-		"stun.commpeak.com:3478",
 		"stun.cope.es:3478",
 		"stun.counterpath.com:3478",
 		"stun.counterpath.net:3478",
 		"stun.dcalling.de:3478",
-		"stun.demos.ru:3478",
 		"stun.dus.net:3478",
-		"stun.easycall.pl:3478",
-		"stun.easyvoip.com:3478",
 		"stun.ekiga.net:3478",
 		"stun.epygi.com:3478",
-		"stun.etoilediese.fr:3478",
-		"stun.freecall.com:3478",
 		"stun.freeswitch.org:3478",
 		"stun.freevoipdeal.com:3478",
 		"stun.gmx.de:3478",
 		"stun.gmx.net:3478",
 		"stun.halonet.pl:3478",
 		"stun.hoiio.com:3478",
-		"stun.hosteurope.de:3478",
-		"stun.infra.net:3478",
 		"stun.internetcalls.com:3478",
 		"stun.intervoip.com:3478",
 		"stun.ipfire.org:3478",
 		"stun.ippi.fr:3478",
 		"stun.ipshka.com:3478",
 		"stun.it1.hr:3478",
-		"stun.ivao.aero:3478",
 		"stun.jumblo.com:3478",
 		"stun.justvoip.com:3478",
 		"stun.l.google.com:19302",
 		"stun.linphone.org:3478",
 		"stun.liveo.fr:3478",
 		"stun.lowratevoip.com:3478",
-		"stun.lundimatin.fr:3478",
-		"stun.mit.de:3478",
-		"stun.miwifi.com:3478",
 		"stun.myvoiptraffic.com:3478",
 		"stun.netappel.com:3478",
 		"stun.netgsm.com.tr:3478",
 		"stun.nfon.net:3478",
 		"stun.nonoh.net:3478",
-		"stun.nottingham.ac.uk:3478",
-		"stun.ooma.com:3478",
 		"stun.ozekiphone.com:3478",
 		"stun.pjsip.org:3478",
-		"stun.poivy.com:3478",
 		"stun.powervoip.com:3478",
 		"stun.ppdi.com:3478",
-		"stun.qq.com:3478",
-		"stun.rackco.com:3478",
 		"stun.rockenstein.de:3478",
 		"stun.rolmail.net:3478",
 		"stun.rynga.com:3478",
@@ -226,8 +204,6 @@ const STUN = struct { // MARK: STUN
 		"stun.sipgate.net:10000",
 		"stun.sipgate.net:3478",
 		"stun.siplogin.de:3478",
-		"stun.sipnet.net:3478",
-		"stun.sippeer.dk:3478",
 		"stun.siptraffic.com:3478",
 		"stun.smartvoip.com:3478",
 		"stun.smsdiscount.com:3478",
@@ -235,17 +211,12 @@ const STUN = struct { // MARK: STUN
 		"stun.solnet.ch:3478",
 		"stun.sonetel.com:3478",
 		"stun.sonetel.net:3478",
-		"stun.sovtest.ru:3478",
 		"stun.srce.hr:3478",
-		"stun.stunprotocol.org:3478",
 		"stun.t-online.de:3478",
 		"stun.tel.lu:3478",
 		"stun.telbo.com:3478",
 		"stun.tng.de:3478",
 		"stun.twt.it:3478",
-		"stun.uls.co.za:3478",
-		"stun.usfamily.net:3478",
-		"stun.vivox.com:3478",
 		"stun.vo.lu:3478",
 		"stun.voicetrading.com:3478",
 		"stun.voip.aebc.com:3478",
@@ -268,7 +239,6 @@ const STUN = struct { // MARK: STUN
 		"stun.voys.nl:3478",
 		"stun.voztele.com:3478",
 		"stun.webcalldirect.com:3478",
-		"stun.wifirst.net:3478",
 		"stun.zadarma.com:3478",
 		"stun1.l.google.com:19302",
 		"stun2.l.google.com:19302",
@@ -593,6 +563,8 @@ pub const ConnectionManager = struct { // MARK: ConnectionManager
 			} else |err| {
 				if(err == error.Timeout) {
 					// No message within the last ~100 ms.
+				} else if(err == error.ConnectionResetByPeer) {
+					std.log.warn("Got error.ConnectionResetByPeer on receive. This indicates that a previous message did not find a valid destination.", .{});
 				} else {
 					std.log.err("Got error on receive: {s}", .{@errorName(err)});
 					@panic("Network failed.");
@@ -764,7 +736,9 @@ pub const Protocols = struct {
 				std.mem.readInt(i32, remaining[4..8], .big),
 				std.mem.readInt(i32, remaining[8..12], .big),
 			};
-			remaining = remaining[12..];
+			conn.user.?.clientUpdatePos = basePosition;
+			conn.user.?.renderDistance = std.mem.readInt(u16, remaining[12..14], .big);
+			remaining = remaining[14..];
 			while(remaining.len >= 4) {
 				const voxelSizeShift: u5 = @intCast(remaining[3]);
 				const positionMask = ~((@as(i32, 1) << voxelSizeShift+chunk.chunkShift) - 1);
@@ -781,15 +755,16 @@ pub const Protocols = struct {
 				remaining = remaining[4..];
 			}
 		}
-		pub fn sendRequest(conn: *Connection, requests: []chunk.ChunkPosition, basePosition: Vec3i) void {
+		pub fn sendRequest(conn: *Connection, requests: []chunk.ChunkPosition, basePosition: Vec3i, renderDistance: u16) void {
 			if(requests.len == 0) return;
-			const data = main.stackAllocator.alloc(u8, 12 + 4*requests.len);
+			const data = main.stackAllocator.alloc(u8, 14 + 4*requests.len);
 			defer main.stackAllocator.free(data);
 			var remaining = data;
 			std.mem.writeInt(i32, remaining[0..4], basePosition[0], .big);
 			std.mem.writeInt(i32, remaining[4..8], basePosition[1], .big);
 			std.mem.writeInt(i32, remaining[8..12], basePosition[2], .big);
-			remaining = remaining[12..];
+			std.mem.writeInt(u16, remaining[12..14], renderDistance, .big);
+			remaining = remaining[14..];
 			for(requests) |req| {
 				const voxelSizeShift: u5 = std.math.log2_int(u31, req.voxelSize);
 				const positionMask = ~((@as(i32, 1) << voxelSizeShift+chunk.chunkShift) - 1);
@@ -987,23 +962,17 @@ pub const Protocols = struct {
 	pub const genericUpdate = struct {
 		pub const id: u8 = 9;
 		pub const asynchronous = false;
-		const type_renderDistance: u8 = 0;
+		const type_reserved1: u8 = 0;
 		const type_teleport: u8 = 1;
 		const type_cure: u8 = 2;
-		const type_inventoryAdd: u8 = 3;
-		const type_inventoryFull: u8 = 4;
-		const type_inventoryClear: u8 = 5;
+		const type_reserved2: u8 = 3;
+		const type_reserved3: u8 = 4;
+		const type_reserved4: u8 = 5;
 		const type_itemStackDrop: u8 = 6;
-		const type_itemStackCollect: u8 = 7;
+		const type_reserved5: u8 = 7;
 		const type_timeAndBiome: u8 = 8;
 		fn receive(conn: *Connection, data: []const u8) !void {
 			switch(data[0]) {
-				type_renderDistance => {
-					const renderDistance = std.mem.readInt(i32, data[1..5], .big);
-					if(conn.user) |user| {
-						user.renderDistance = @intCast(renderDistance); // TODO: Update the protocol to use u16.
-					}
-				},
 				type_teleport => {
 					game.Player.setPosBlocking(Vec3d{
 						@bitCast(std.mem.readInt(u64, data[1..9], .big)),
@@ -1014,19 +983,11 @@ pub const Protocols = struct {
 				type_cure => {
 					// TODO: health and hunger
 				},
-				type_inventoryAdd => {
-					const slot = std.mem.readInt(u32, data[1..5], .big);
-					const amount = std.mem.readInt(u32, data[5..9], .big);
-					_ = slot;
-					_ = amount;
-					// TODO
-				},
-				type_inventoryFull => {
-					// TODO: Parse inventory from zon
-				},
-				type_inventoryClear => {
-					// TODO: Clear inventory
-				},
+				type_reserved1 => {},
+				type_reserved2 => {},
+				type_reserved3 => {},
+				type_reserved4 => {},
+				type_reserved5 => {},
 				type_itemStackDrop => {
 					const zon = ZonElement.parseFromString(main.stackAllocator, data[1..]);
 					defer zon.free(main.stackAllocator);
@@ -1038,23 +999,6 @@ pub const Protocols = struct {
 					const dir = zon.get(Vec3f, "dir", .{0, 0, 1});
 					const vel = zon.get(f32, "vel", 0);
 					main.server.world.?.drop(stack, pos, dir, vel);
-				},
-				type_itemStackCollect => {
-					const zon = ZonElement.parseFromString(main.stackAllocator, data[1..]);
-					defer zon.free(main.stackAllocator);
-					const item = items.Item.init(zon) catch |err| {
-						std.log.err("Error {s} while collecting item {s}. Ignoring it.", .{@errorName(err), data[1..]});
-						return;
-					};
-					game.Player.mutex.lock();
-					defer game.Player.mutex.unlock();
-					const remaining = game.Player.inventory.addItem(item, zon.get(u16, "amount", 0));
-
-					sendInventory_full(conn, game.Player.inventory);
-					if(remaining != 0) {
-						// Couldn't collect everything → drop it again.
-						itemStackDrop(conn, ItemStack{.item=item, .amount=remaining}, game.Player.super.pos, Vec3f{0, 0, 0}, 0);
-					}
 				},
 				type_timeAndBiome => {
 					if(conn.manager.world) |world| {
@@ -1102,13 +1046,6 @@ pub const Protocols = struct {
 			conn.sendUnimportant(id, headeredData);
 		}
 
-		pub fn sendRenderDistance(conn: *Connection, renderDistance: i32) void {
-			var data: [5]u8 = undefined;
-			data[0] = type_renderDistance;
-			std.mem.writeInt(i32, data[1..5], renderDistance, .big);
-			conn.sendImportant(id, &data);
-		}
-
 		pub fn sendTPCoordinates(conn: *Connection, pos: Vec3d) void {
 			var data: [1+24]u8 = undefined;
 			data[0] = type_teleport;
@@ -1124,29 +1061,6 @@ pub const Protocols = struct {
 			conn.sendImportant(id, &data);
 		}
 
-		pub fn sendInventory_ItemStack_add(conn: *Connection, slot: u32, amount: i32) void {
-			var data: [9]u8 = undefined;
-			data[0] = type_inventoryAdd;
-			std.mem.writeInt(u32, data[1..5], slot, .big);
-			std.mem.writeInt(u32, data[5..9], amount, .big);
-			conn.sendImportant(id, &data);
-		}
-
-
-		pub fn sendInventory_full(conn: *Connection, inv: Inventory) void {
-			const zon = inv.save(main.stackAllocator);
-			defer zon.free(main.stackAllocator);
-			const string = zon.toString(main.stackAllocator);
-			defer main.stackAllocator.free(string);
-			addHeaderAndSendImportant(conn, type_inventoryFull, string);
-		}
-
-		pub fn clearInventory(conn: *Connection) void {
-			var data: [1]u8 = undefined;
-			data[0] = type_inventoryClear;
-			conn.sendImportant(id, &data);
-		}
-
 		pub fn itemStackDrop(conn: *Connection, stack: ItemStack, pos: Vec3d, dir: Vec3f, vel: f32) void {
 			const zonObject = stack.store(main.stackAllocator);
 			defer zonObject.free(main.stackAllocator);
@@ -1156,14 +1070,6 @@ pub const Protocols = struct {
 			const string = zonObject.toString(main.stackAllocator);
 			defer main.stackAllocator.free(string);
 			addHeaderAndSendImportant(conn, type_itemStackDrop, string);
-		}
-
-		pub fn itemStackCollect(conn: *Connection, stack: ItemStack) void {
-			const zon = stack.store(main.stackAllocator);
-			defer zon.free(main.stackAllocator);
-			const string = zon.toString(main.stackAllocator);
-			defer main.stackAllocator.free(string);
-			addHeaderAndSendImportant(conn, type_itemStackCollect, string);
 		}
 
 		pub fn sendTimeAndBiome(conn: *Connection, world: *const main.server.ServerWorld) void {
@@ -1830,7 +1736,7 @@ const ProtocolTask = struct {
 		return std.math.floatMax(f32);
 	}
 
-	pub fn isStillNeeded(_: *ProtocolTask, _: i64) bool {
+	pub fn isStillNeeded(_: *ProtocolTask) bool {
 		return true;
 	}
 
