@@ -1120,54 +1120,17 @@ pub const ItemStack = struct { // MARK: ItemStack
 		};
 	}
 
-	/// Moves the content of the given ItemStack into a new ItemStack.
-	pub fn moveFrom(self: *ItemStack, supplier: *ItemStack) void {
-		std.debug.assert(self.item == null); // Don't want to delete matter.
-		self.item = supplier.item;
-		self.amount = supplier.amount;
-		supplier.clear();
-	}
-
-	pub fn filled(self: *const ItemStack) bool {
+	pub fn deinit(self: *ItemStack) void {
 		if(self.item) |item| {
-			return self.amount >= item.stackSize();
+			item.deinit();
 		}
-		return false;
 	}
 
 	pub fn empty(self: *const ItemStack) bool {
 		return self.amount == 0;
 	}
 
-	/// Returns the number of items actually added/removed.
-	pub fn add(self: *ItemStack, item: Item, number: anytype) @TypeOf(number) {
-		if(self.item == null) self.item = item;
-		var newAmount = self.amount + number;
-		var returnValue = number;
-		if(newAmount < 0) {
-			newAmount = 0;
-			returnValue = newAmount - self.amount;
-		} else if(newAmount > self.item.?.stackSize()) {
-			newAmount = self.item.?.stackSize();
-			returnValue = newAmount - self.amount;
-		}
-		self.amount = @intCast(newAmount);
-		if(self.empty()) {
-			self.clear();
-		}
-		return returnValue;
-	}
-
-	/// whether the given number of items can be added to this stack.
-	pub fn canAddAll(self: *const ItemStack, item: Item, number: u16) bool {
-		if(self.item != null and !std.meta.eql(self.item.?, item)) return false;
-		return @as(u32, self.amount) + number <= item.stackSize();
-	}
-
 	pub fn clear(self: *ItemStack) void {
-		if(self.item) |item| {
-			item.deinit();
-		}
 		self.item = null;
 		self.amount = 0;
 	}
@@ -1186,21 +1149,981 @@ pub const ItemStack = struct { // MARK: ItemStack
 	}
 };
 
+const Side = enum{client, server};
+
+pub const InventorySync = struct { // MARK: InventorySync
+
+	pub const ClientSide = struct {
+		var mutex: std.Thread.Mutex = .{};
+		var commands: main.utils.CircularBufferQueue(InventoryCommand) = undefined;
+		var maxId: u32 = 0;
+		var freeIdList: main.List(u32) = undefined;
+		var serverToClientMap: std.AutoHashMap(u32, Inventory) = undefined;
+
+		pub fn init() void {
+			commands = main.utils.CircularBufferQueue(InventoryCommand).init(main.globalAllocator, 256);
+			freeIdList = .init(main.globalAllocator);
+			serverToClientMap = .init(main.globalAllocator.allocator);
+		}
+
+		pub fn deinit() void {
+			while(commands.dequeue()) |cmd| {
+				cmd.finalize(main.globalAllocator, .client, &.{});
+			}
+			commands.deinit();
+			std.debug.assert(freeIdList.items.len == maxId); // leak
+			freeIdList.deinit();
+			serverToClientMap.deinit();
+		}
+
+		pub fn executeCommand(payload: InventoryCommand.CommandPayload) void {
+			var cmd: InventoryCommand = .{
+				.payload = payload,
+			};
+
+			mutex.lock();
+			defer mutex.unlock();
+			cmd.do(main.globalAllocator, .client);
+			const data = cmd.serializePayload(main.stackAllocator);
+			defer main.stackAllocator.free(data);
+			main.network.Protocols.inventory.sendCommand(main.game.world.?.conn, cmd.payload, data);
+			commands.enqueue(cmd);
+		}
+
+		pub fn undo() void {
+			if(commands.dequeue_front()) |_cmd| {
+				var cmd = _cmd;
+				mutex.lock();
+				defer mutex.unlock();
+				cmd.undo();
+				cmd.undoSteps.deinit(main.globalAllocator); // TODO: This should be put on some kind of redo queue once the testing phase is over.
+			}
+		}
+
+		fn nextId() u32 {
+			mutex.lock();
+			defer mutex.unlock();
+			if(freeIdList.popOrNull()) |id| {
+				return id;
+			}
+			defer maxId += 1;
+			return maxId;
+		}
+
+		fn freeId(id: u32) void {
+			mutex.lock();
+			defer mutex.unlock();
+			freeIdList.append(id);
+		}
+
+		fn mapServerId(serverId: u32, inventory: Inventory) void {
+			serverToClientMap.put(serverId, inventory) catch unreachable;
+		}
+
+		fn unmapServerId(serverId: u32, clientId: u32) void {
+			std.debug.assert(serverToClientMap.fetchRemove(serverId).?.value.id == clientId);
+		}
+
+		fn getInventory(serverId: u32) ?Inventory {
+			mutex.lock();
+			defer mutex.unlock();
+			return serverToClientMap.get(serverId);
+		}
+
+		pub fn receiveConfirmation(data: []const u8) void {
+			mutex.lock();
+			defer mutex.unlock();
+			commands.dequeue().?.finalize(main.globalAllocator, .client, data);
+		}
+	};
+
+	pub const ServerSide = struct {
+		const ServerInventory = struct {
+			inv: Inventory,
+			users: main.ListUnmanaged(*main.server.User),
+
+			fn init(len: usize, typ: Inventory.Type) ServerInventory {
+				return .{
+					.inv = Inventory._init(main.globalAllocator, len, typ, .server),
+					.users = .{},
+				};
+			}
+
+			fn deinit(self: ServerInventory) void {
+				std.debug.assert(self.users.items.len == 0);
+				self.users.deinit(main.globalAllocator);
+				self.inv._deinit(main.globalAllocator, .server);
+			}
+
+			fn addUser(self: *ServerInventory, user: *main.server.User, clientId: u32) void {
+				main.utils.assertLocked(&mutex);
+				self.users.append(main.globalAllocator, user);
+				user.inventoryClientToServerIdMap.put(clientId, self.inv.id) catch unreachable;
+			}
+
+			fn removeUser(self: *ServerInventory, user: *main.server.User, clientId: u32) void {
+				main.utils.assertLocked(&mutex);
+				_ = self.users.swapRemove(std.mem.indexOfScalar(*main.server.User, self.users.items, user).?);
+				std.debug.assert(user.inventoryClientToServerIdMap.fetchRemove(clientId).?.value == self.inv.id);
+				if(self.users.items.len == 0) {
+					self.deinit();
+				}
+			}
+		};
+		var mutex: std.Thread.Mutex = .{};
+
+		var inventories: main.List(ServerInventory) = undefined;
+		var maxId: u32 = 0;
+		var freeIdList: main.List(u32) = undefined;
+
+		pub fn init() void {
+			inventories = .initCapacity(main.globalAllocator, 256);
+			freeIdList = .init(main.globalAllocator);
+		}
+
+		pub fn deinit() void {
+			std.debug.assert(freeIdList.items.len == maxId); // leak
+			freeIdList.deinit();
+			inventories.deinit();
+		}
+
+		pub fn disconnectUser(user: *main.server.User) void {
+			mutex.lock();
+			defer mutex.unlock();
+			while(true) {
+				// Reinitializing the iterator in the loop to allow for removal:
+				var iter = user.inventoryClientToServerIdMap.keyIterator();
+				const clientId = iter.next() orelse break;
+				closeInventory(user, clientId.*) catch unreachable;
+			}
+		}
+
+		fn nextId() u32 {
+			main.utils.assertLocked(&mutex);
+			if(freeIdList.popOrNull()) |id| {
+				return id;
+			}
+			defer maxId += 1;
+			_ = inventories.addOne();
+			return maxId;
+		}
+
+		fn freeId(id: u32) void {
+			main.utils.assertLocked(&mutex);
+			freeIdList.append(id);
+		}
+
+		pub fn receiveCommand(source: *main.server.User, data: []const u8) !void {
+			mutex.lock();
+			defer mutex.unlock();
+			const typ: InventoryCommand.PayloadType = @enumFromInt(data[0]);
+			@setEvalBranchQuota(100000);
+			const payload: InventoryCommand.CommandPayload = switch(typ) {
+				inline else => |_typ| @unionInit(InventoryCommand.CommandPayload, @tagName(_typ), try std.meta.FieldType(InventoryCommand.CommandPayload, _typ).deserialize(data[1..], .server, source)),
+			};
+			var command = InventoryCommand {
+				.payload = payload,
+			};
+			command.do(main.globalAllocator, .server);
+			command.finalize(main.globalAllocator, .server, &.{});
+		}
+
+		fn createInventory(user: *main.server.User, clientId: u32, len: usize, typ: Inventory.Type) void {
+			main.utils.assertLocked(&mutex);
+			const inventory = ServerInventory.init(len, typ);
+			inventories.items[inventory.inv.id] = inventory;
+			inventories.items[inventory.inv.id].addUser(user, clientId);
+		}
+
+		fn closeInventory(user: *main.server.User, clientId: u32) !void {
+			main.utils.assertLocked(&mutex);
+			const serverId = user.inventoryClientToServerIdMap.get(clientId) orelse return error.Invalid;
+			inventories.items[serverId].removeUser(user, clientId);
+		}
+
+		fn getInventory(user: *main.server.User, clientId: u32) ?Inventory {
+			main.utils.assertLocked(&mutex);
+			const serverId = user.inventoryClientToServerIdMap.get(clientId) orelse return null;
+			return inventories.items[serverId].inv;
+		}
+	};
+
+	pub fn executeCommand(payload: InventoryCommand.CommandPayload) void {
+		ClientSide.executeCommand(payload);
+	}
+
+	pub fn getInventory(id: u32, side: Side, user: ?*main.server.User) ?Inventory {
+		return switch(side) {
+			.client => InventorySync.ClientSide.getInventory(id),
+			.server => InventorySync.ServerSide.getInventory(user.?, id),
+		};
+	}
+};
+
+pub const InventoryCommand = struct { // MARK: InventoryCommand
+	pub const PayloadType = enum(u8) {
+		open = 0,
+		close = 1,
+		depositOrSwap = 2,
+		deposit = 3,
+		takeHalf = 4,
+		dropStack = 5,
+		dropOne = 6,
+		fillFromCreative = 7,
+		depositOrDrop = 8,
+	};
+	pub const CommandPayload = union(PayloadType) {
+		open: Open,
+		close: Close,
+		depositOrSwap: DepositOrSwap,
+		deposit: Deposit,
+		takeHalf: TakeHalf,
+		dropStack: DropStack,
+		dropOne: DropOne,
+		fillFromCreative: FillFromCreative,
+		depositOrDrop: DepositOrDrop,
+	};
+
+	const UndoInfo = union(enum) {
+		move: struct {
+			dest: Inventory,
+			destSlot: u32,
+			source: Inventory,
+			sourceSlot: u32,
+			amount: u16,
+		},
+		swap: struct {
+			dest: Inventory,
+			destSlot: u32,
+			source: Inventory,
+			sourceSlot: u32,
+		},
+		delete: struct {
+			source: Inventory,
+			sourceSlot: u32,
+			item: ItemStack,
+		},
+		create: struct {
+			dest: Inventory,
+			destSlot: u32,
+			amount: u16,
+		},
+	};
+
+	payload: CommandPayload,
+	undoSteps: main.ListUnmanaged(UndoInfo) = .{},
+
+	fn serializePayload(self: *InventoryCommand, allocator: NeverFailingAllocator) []const u8 {
+		var list = main.List(u8).init(allocator);
+		switch(self.payload) {
+			inline else => |payload| {
+				payload.serialize(&list);
+			},
+		}
+		return list.toOwnedSlice();
+	}
+
+	fn do(self: *InventoryCommand, allocator: NeverFailingAllocator, side: Side) void {
+		std.debug.assert(self.undoSteps.items.len == 0); // do called twice without cleaning up
+		switch(self.payload) {
+			inline else => |payload| {
+				payload.run(allocator, self, side);
+			},
+		}
+	}
+
+	fn undo(self: *InventoryCommand) void {
+		// Iterating in reverse order!
+		while(self.undoSteps.popOrNull()) |step| {
+			switch(step) {
+				.move => |info| {
+					if(info.amount == 0) continue;
+					std.debug.assert(std.meta.eql(info.source._items[info.sourceSlot].item, info.dest._items[info.destSlot].item) or info.source._items[info.sourceSlot].item == null);
+					info.source._items[info.sourceSlot].item = info.dest._items[info.destSlot].item;
+					info.source._items[info.sourceSlot].amount += info.amount;
+					info.dest._items[info.destSlot].amount -= info.amount;
+					if(info.dest._items[info.destSlot].amount == 0) {
+						info.dest._items[info.destSlot].item = null;
+					}
+					info.source.update();
+					info.dest.update();
+				},
+				.swap => |info| {
+					const temp = info.dest._items[info.destSlot];
+					info.dest._items[info.destSlot] = info.source._items[info.sourceSlot];
+					info.source._items[info.sourceSlot] = temp;
+					info.source.update();
+					info.dest.update();
+				},
+				.delete => |info| {
+					std.debug.assert(info.source._items[info.sourceSlot].item == null or std.meta.eql(info.source._items[info.sourceSlot].item, info.item.item));
+					info.source._items[info.sourceSlot].item = info.item.item;
+					info.source._items[info.sourceSlot].amount += info.item.amount;
+					info.source.update();
+				},
+				.create => |info| {
+					std.debug.assert(info.dest._items[info.destSlot].amount >= info.amount);
+					info.dest._items[info.destSlot].amount -= info.amount;
+					if(info.dest._items[info.destSlot].amount == 0) {
+						info.dest._items[info.destSlot].item.?.deinit();
+						info.dest._items[info.destSlot].item = null;
+					}
+					info.dest.update();
+				},
+			}
+		}
+		self.undoSteps.clearRetainingCapacity();
+	}
+
+	fn finalize(self: InventoryCommand, allocator: NeverFailingAllocator, side: Side, data: []const u8) void {
+		for(self.undoSteps.items) |step| {
+			switch(step) {
+				.move, .swap, .create => {},
+				.delete => |info| {
+					info.item.item.?.deinit();
+				},
+			}
+		}
+		self.undoSteps.deinit(allocator);
+
+		switch(self.payload) {
+			inline else => |payload| {
+				if(@hasDecl(@TypeOf(payload), "finalize")) {
+					payload.finalize(side, data);
+				}
+			},
+		}
+	}
+
+	fn removeToolCraftingIngredients(self: *InventoryCommand, allocator: NeverFailingAllocator, inv: Inventory) void {
+		std.debug.assert(inv.type == .workbench);
+		for(0..25) |i| {
+			if(inv._items[i].amount != 0) {
+				inv._items[i].amount -= 1;
+				self.undoSteps.append(allocator, .{.delete = .{
+					.source = inv,
+					.sourceSlot = @intCast(i),
+					.item = .{
+						.item = inv._items[i].item,
+						.amount = 1,
+					},
+				}});
+				if(inv._items[i].amount == 0) {
+					inv._items[i].item = null;
+				}
+			}
+		}
+	}
+
+	fn tryCraftingTo(self: *InventoryCommand, allocator: NeverFailingAllocator, dest: Inventory, destSlot: u32, source: Inventory, sourceSlot: u32) void {
+		if(true) return; // TODO: Figure out how to send the source inventories to the server.
+		std.debug.assert(source.type == .crafting);
+		std.debug.assert(dest.type == .normal);
+		if(sourceSlot != source._items.len - 1) return;
+		if(dest._items[destSlot].item != null and !std.meta.eql(dest._items[destSlot].item, source._items[sourceSlot].item)) return;
+		if(dest._items[destSlot].amount + source._items[sourceSlot].amount > source._items[sourceSlot].item.?.stackSize()) return;
+
+		// Can we even craft it?
+		for(source._items[0..sourceSlot]) |requiredStack| {
+			var amount: usize = 0;
+			// There might be duplicate entries:
+			for(source._items[0..sourceSlot]) |otherStack| {
+				if(std.meta.eql(requiredStack.item, otherStack.item))
+					amount += otherStack.amount;
+			}
+			for(main.game.Player.inventory._items) |otherStack| {
+				if(std.meta.eql(requiredStack.item, otherStack.item))
+					amount -|= otherStack.amount;
+			}
+			// Not enough ingredients
+			if(amount != 0)
+				return;
+		}
+
+		// Craft it
+		for(source._items[0..sourceSlot]) |requiredStack| {
+			var remainingAmount: usize = requiredStack.amount;
+			for(main.game.Player.inventory._items, 0..) |*otherStack, i| {
+				if(std.meta.eql(requiredStack.item, otherStack.item)) {
+					const amount = @min(remainingAmount, otherStack.amount);
+					otherStack.amount -= amount;
+					remainingAmount -= amount;
+					self.undoSteps.append(allocator, .{.delete = .{
+						.source = main.game.Player.inventory,
+						.sourceSlot = @intCast(i),
+						.item = .{
+							.item = otherStack.item,
+							.amount = amount,
+						},
+					}});
+					if(otherStack.amount == 0) otherStack.item = null;
+					if(remainingAmount == 0) break;
+				}
+			}
+			std.debug.assert(remainingAmount == 0);
+		}
+		dest._items[destSlot].item = source._items[sourceSlot].item;
+		dest._items[destSlot].amount += source._items[sourceSlot].amount;
+		self.undoSteps.append(allocator, .{.create = .{
+			.dest = dest,
+			.destSlot = destSlot,
+			.amount = source._items[sourceSlot].amount,
+		}});
+	}
+
+	const Open = struct {
+		inv: Inventory,
+
+		fn run(_: Open, _: NeverFailingAllocator, _: *InventoryCommand, _: Side) void {}
+
+		fn finalize(self: Open, side: Side, data: []const u8) void {
+			if(side != .client) return;
+			if(data.len >= 4) {
+				const serverId = std.mem.readInt(u32, data[0..4], .big);
+				InventorySync.ClientSide.mapServerId(serverId, self.inv);
+			}
+		}
+
+		fn confirmationData(self: Open, allocator: NeverFailingAllocator) []const u8 {
+			const data = allocator.alloc(u8, 4);
+			std.mem.writeInt(u32, data[0..4], self.inv.id, .big);
+		}
+
+		fn serialize(self: Open, data: *main.List(u8)) void {
+			std.mem.writeInt(u32, data.addMany(4)[0..4], self.inv.id, .big);
+			std.mem.writeInt(usize, data.addMany(8)[0..8], self.inv._items.len, .big);
+			data.append(@intFromEnum(self.inv.type));
+		}
+
+		fn deserialize(data: []const u8, side: Side, user: ?*main.server.User) !Open {
+			if(data.len != 13) return error.Invalid;
+			if(side != .server or user == null) return error.Invalid;
+			const id = std.mem.readInt(u32, data[0..4], .big);
+			const len = std.mem.readInt(usize, data[4..12], .big);
+			const typ: Inventory.Type = @enumFromInt(data[12]);
+			InventorySync.ServerSide.createInventory(user.?, id, len, typ);
+			return .{
+				.inv = InventorySync.ServerSide.getInventory(user.?, id) orelse return error.Invalid,
+			};
+		}
+	};
+
+	const Close = struct {
+		inv: Inventory,
+		allocator: NeverFailingAllocator,
+
+		fn run(_: Close, _: NeverFailingAllocator, _: *InventoryCommand, _: Side) void {}
+
+		fn finalize(self: Close, side: Side, data: []const u8) void {
+			if(side != .client) return;
+			self.inv._deinit(self.allocator, .client);
+			if(data.len >= 4) {
+				const serverId = std.mem.readInt(u32, data[0..4], .big);
+				InventorySync.ClientSide.unmapServerId(serverId, self.inv.id);
+			}
+		}
+
+		fn serialize(self: Close, data: *main.List(u8)) void {
+			std.mem.writeInt(u32, data.addMany(4)[0..4], self.inv.id, .big);
+		}
+
+		fn deserialize(data: []const u8, side: Side, user: ?*main.server.User) !Close {
+			if(data.len != 4) return error.Invalid;
+			if(side != .server or user == null) return error.Invalid;
+			const id = std.mem.readInt(u32, data[0..4], .big);
+			try InventorySync.ServerSide.closeInventory(user.?, id);
+			return undefined;
+		}
+	};
+
+	const DepositOrSwap = struct {
+		dest: Inventory,
+		destSlot: u32,
+		source: Inventory,
+		sourceSlot: u32,
+
+		fn run(self: DepositOrSwap, allocator: NeverFailingAllocator, cmd: *InventoryCommand, side: Side) void {
+			std.debug.assert(self.source.type == .normal);
+			if(self.dest.type == .creative) {
+				FillFromCreative.run(.{.dest = self.source, .destSlot = self.sourceSlot, .item = self.dest._items[self.destSlot].item}, allocator, cmd, side);
+			}
+			if(self.dest.type == .crafting) {
+				cmd.tryCraftingTo(allocator, self.source, self.sourceSlot, self.dest, self.destSlot);
+				return;
+			}
+			if(self.dest.type == .workbench and self.destSlot == 25) {
+				if(self.source._items[self.sourceSlot].item == null and self.dest._items[self.destSlot].item != null) {
+					self.source._items[self.sourceSlot] = self.dest._items[self.destSlot];
+					cmd.undoSteps.append(allocator, .{.create = .{
+						.dest = self.source,
+						.destSlot = self.sourceSlot,
+						.amount = 1,
+					}});
+					self.dest._items[self.destSlot] = .{.item = null, .amount = 0};
+					cmd.removeToolCraftingIngredients(allocator, self.dest);
+					self.dest.update();
+				}
+				return;
+			}
+			defer self.dest.update();
+			if(self.dest._items[self.destSlot].item) |itemDest| {
+				if(self.source._items[self.sourceSlot].item) |itemSource| {
+					if(std.meta.eql(itemDest, itemSource)) {
+						if(self.dest._items[self.destSlot].amount >= itemDest.stackSize()) return;
+						const amount = @min(itemDest.stackSize() - self.dest._items[self.destSlot].amount, self.source._items[self.sourceSlot].amount);
+						self.dest._items[self.destSlot].amount += amount;
+						self.source._items[self.sourceSlot].amount -= amount;
+						if(self.source._items[self.sourceSlot].amount == 0) self.source._items[self.sourceSlot].item = null;
+						cmd.undoSteps.append(allocator, .{.move = .{
+							.dest = self.dest,
+							.destSlot = self.destSlot,
+							.source = self.source,
+							.sourceSlot = self.sourceSlot,
+							.amount = amount,
+						}});
+						return;
+					}
+				}
+			}
+			const temp = self.dest._items[self.destSlot];
+			self.dest._items[self.destSlot] = self.source._items[self.sourceSlot];
+			self.source._items[self.sourceSlot] = temp;
+			cmd.undoSteps.append(allocator, .{.swap = .{
+				.dest = self.dest,
+				.destSlot = self.destSlot,
+				.source = self.source,
+				.sourceSlot = self.sourceSlot,
+			}});
+		}
+
+		fn serialize(self: DepositOrSwap, data: *main.List(u8)) void {
+			std.mem.writeInt(u32, data.addMany(4)[0..4], self.dest.id, .big);
+			std.mem.writeInt(u32, data.addMany(4)[0..4], self.destSlot, .big);
+			std.mem.writeInt(u32, data.addMany(4)[0..4], self.source.id, .big);
+			std.mem.writeInt(u32, data.addMany(4)[0..4], self.sourceSlot, .big);
+		}
+
+		fn deserialize(data: []const u8, side: Side, user: ?*main.server.User) !DepositOrSwap {
+			if(data.len != 16) return error.Invalid;
+			const destId = std.mem.readInt(u32, data[0..4], .big);
+			const sourceId = std.mem.readInt(u32, data[8..12], .big);
+			return .{
+				.dest = InventorySync.getInventory(destId, side, user) orelse return error.Invalid,
+				.destSlot = std.mem.readInt(u32, data[4..8], .big),
+				.source = InventorySync.getInventory(sourceId, side, user) orelse return error.Invalid,
+				.sourceSlot = std.mem.readInt(u32, data[12..16], .big),
+			};
+		}
+	};
+
+	const Deposit = struct {
+		dest: Inventory,
+		destSlot: u32,
+		source: Inventory,
+		sourceSlot: u32,
+		amount: u16,
+
+		fn run(self: Deposit, allocator: NeverFailingAllocator, cmd: *InventoryCommand, _: Side) void {
+			std.debug.assert(self.source.type == .normal);
+			if(self.dest.type == .creative) return;
+			if(self.dest.type == .crafting) return;
+			if(self.dest.type == .workbench and self.destSlot == 25) return;
+			defer self.dest.update();
+			const itemSource = self.source._items[self.sourceSlot].item orelse return;
+			if(self.dest._items[self.destSlot].item) |itemDest| {
+				if(std.meta.eql(itemDest, itemSource)) {
+					if(self.dest._items[self.destSlot].amount >= itemDest.stackSize()) return;
+					const amount = @min(itemDest.stackSize() - self.dest._items[self.destSlot].amount, self.amount);
+					self.dest._items[self.destSlot].amount += amount;
+					self.source._items[self.sourceSlot].amount -= amount;
+					if(self.source._items[self.sourceSlot].amount == 0) self.source._items[self.sourceSlot].item = null;
+					cmd.undoSteps.append(allocator, .{.move = .{
+						.dest = self.dest,
+						.destSlot = self.destSlot,
+						.source = self.source,
+						.sourceSlot = self.sourceSlot,
+						.amount = amount,
+					}});
+				}
+			} else {
+				self.dest._items[self.destSlot].item = self.source._items[self.sourceSlot].item;
+				self.dest._items[self.destSlot].amount = self.amount;
+				self.source._items[self.sourceSlot].amount -= self.amount;
+				if(self.source._items[self.sourceSlot].amount == 0) self.source._items[self.sourceSlot].item = null;
+				cmd.undoSteps.append(allocator, .{.move = .{
+					.dest = self.dest,
+					.destSlot = self.destSlot,
+					.source = self.source,
+					.sourceSlot = self.sourceSlot,
+					.amount = self.amount,
+				}});
+			}
+		}
+
+		fn serialize(self: Deposit, data: *main.List(u8)) void {
+			std.mem.writeInt(u32, data.addMany(4)[0..4], self.dest.id, .big);
+			std.mem.writeInt(u32, data.addMany(4)[0..4], self.destSlot, .big);
+			std.mem.writeInt(u32, data.addMany(4)[0..4], self.source.id, .big);
+			std.mem.writeInt(u32, data.addMany(4)[0..4], self.sourceSlot, .big);
+			std.mem.writeInt(u16, data.addMany(2)[0..2], self.amount, .big);
+		}
+
+		fn deserialize(data: []const u8, side: Side, user: ?*main.server.User) !Deposit {
+			if(data.len != 18) return error.Invalid;
+			const destId = std.mem.readInt(u32, data[0..4], .big);
+			const sourceId = std.mem.readInt(u32, data[8..12], .big);
+			return .{
+				.dest = InventorySync.getInventory(destId, side, user) orelse return error.Invalid,
+				.destSlot = std.mem.readInt(u32, data[4..8], .big),
+				.source = InventorySync.getInventory(sourceId, side, user) orelse return error.Invalid,
+				.sourceSlot = std.mem.readInt(u32, data[12..16], .big),
+				.amount = std.mem.readInt(u16, data[16..18], .big),
+			};
+		}
+	};
+
+	const TakeHalf = struct {
+		dest: Inventory,
+		destSlot: u32,
+		source: Inventory,
+		sourceSlot: u32,
+
+		fn run(self: TakeHalf, allocator: NeverFailingAllocator, cmd: *InventoryCommand, side: Side) void {
+			std.debug.assert(self.dest.type == .normal);
+			if(self.source.type == .creative) {
+				if(self.dest._items[self.destSlot].item == null) {
+					const item = self.source._items[self.sourceSlot].item;
+					FillFromCreative.run(.{.dest = self.dest, .destSlot = self.destSlot, .item = item}, allocator, cmd, side);
+				}
+				return;
+			}
+			if(self.source.type == .crafting) {
+				cmd.tryCraftingTo(allocator, self.dest, self.destSlot, self.source, self.sourceSlot);
+				return;
+			}
+			if(self.source.type == .workbench and self.sourceSlot == 25) {
+				if(self.dest._items[self.destSlot].item == null and self.source._items[self.sourceSlot].item != null) {
+					self.dest._items[self.destSlot] = self.source._items[self.sourceSlot];
+					cmd.undoSteps.append(allocator, .{.create = .{
+						.dest = self.dest,
+						.destSlot = self.destSlot,
+						.amount = 1,
+					}});
+					self.source._items[self.sourceSlot] = .{.item = null, .amount = 0};
+					cmd.removeToolCraftingIngredients(allocator, self.source);
+					self.source.update();
+				}
+				return;
+			}
+			defer self.source.update();
+			const itemSource = self.source._items[self.sourceSlot].item orelse return;
+			const desiredAmount = (1 + self.source._items[self.sourceSlot].amount)/2;
+			if(self.dest._items[self.destSlot].item) |itemDest| {
+				if(std.meta.eql(itemDest, itemSource)) {
+					if(self.dest._items[self.destSlot].amount >= itemDest.stackSize()) return;
+					const amount = @min(itemDest.stackSize() - self.dest._items[self.destSlot].amount, desiredAmount);
+					self.dest._items[self.destSlot].amount += amount;
+					self.source._items[self.sourceSlot].amount -= amount;
+					if(self.source._items[self.sourceSlot].amount == 0) self.source._items[self.sourceSlot].item = null;
+					cmd.undoSteps.append(allocator, .{ .move = .{
+						.dest = self.dest,
+						.destSlot = self.destSlot,
+						.source = self.source,
+						.sourceSlot = self.sourceSlot,
+						.amount = amount,
+					}});
+				}
+			} else {
+				self.dest._items[self.destSlot].item = self.source._items[self.sourceSlot].item;
+				self.dest._items[self.destSlot].amount = desiredAmount;
+				self.source._items[self.sourceSlot].amount -= desiredAmount;
+				if(self.source._items[self.sourceSlot].amount == 0) self.source._items[self.sourceSlot].item = null;
+				cmd.undoSteps.append(allocator, .{ .move = .{
+					.dest = self.dest,
+					.destSlot = self.destSlot,
+					.source = self.source,
+					.sourceSlot = self.sourceSlot,
+					.amount = desiredAmount,
+				}});
+			}
+		}
+
+		fn serialize(self: TakeHalf, data: *main.List(u8)) void {
+			std.mem.writeInt(u32, data.addMany(4)[0..4], self.dest.id, .big);
+			std.mem.writeInt(u32, data.addMany(4)[0..4], self.destSlot, .big);
+			std.mem.writeInt(u32, data.addMany(4)[0..4], self.source.id, .big);
+			std.mem.writeInt(u32, data.addMany(4)[0..4], self.sourceSlot, .big);
+		}
+
+		fn deserialize(data: []const u8, side: Side, user: ?*main.server.User) !TakeHalf {
+			if(data.len != 16) return error.Invalid;
+			const destId = std.mem.readInt(u32, data[0..4], .big);
+			const sourceId = std.mem.readInt(u32, data[8..12], .big);
+			return .{
+				.dest = InventorySync.getInventory(destId, side, user) orelse return error.Invalid,
+				.destSlot = std.mem.readInt(u32, data[4..8], .big),
+				.source = InventorySync.getInventory(sourceId, side, user) orelse return error.Invalid,
+				.sourceSlot = std.mem.readInt(u32, data[12..16], .big),
+			};
+		}
+	};
+
+	const DropStack = struct {
+		source: Inventory,
+		sourceSlot: u32,
+
+		fn run(self: DropStack, allocator: NeverFailingAllocator, cmd: *InventoryCommand, side: Side) void {
+			if(self.source.type == .creative) return;
+			if(self.source._items[self.sourceSlot].item == null) return;
+			if(self.source.type == .crafting) {
+				if(self.sourceSlot != self.source._items.len - 1) return;
+				var _items: [1]ItemStack = .{.{.item = null, .amount = 0}};
+				const temp: Inventory = .{
+					.type = .normal,
+					._items = &_items,
+					.id = undefined,
+				};
+				cmd.tryCraftingTo(allocator, temp, 0, self.source, self.sourceSlot);
+				std.debug.assert(cmd.undoSteps.pop().create.dest._items.ptr == temp._items.ptr); // Remove the extra step from undo list (we cannot undo dropped items)
+				if(_items[0].item != null) {
+					if(side == .client) {
+						main.network.Protocols.genericUpdate.itemStackDrop(main.game.world.?.conn, _items[0], @floatCast(main.game.Player.getPosBlocking()), main.game.camera.direction, 20);
+					}
+				}
+				return;
+			}
+			if(self.source.type == .workbench and self.sourceSlot == 25) {
+				cmd.removeToolCraftingIngredients(allocator, self.source);
+			}
+			if(side == .client) {
+				main.network.Protocols.genericUpdate.itemStackDrop(main.game.world.?.conn, self.source.getStack(self.sourceSlot), @floatCast(main.game.Player.getPosBlocking()), main.game.camera.direction, 20);
+			}
+			cmd.undoSteps.append(allocator, .{.delete = .{
+				.source = self.source,
+				.sourceSlot = self.sourceSlot,
+				.item = self.source._items[self.sourceSlot],
+			}});
+			self.source._items[self.sourceSlot].clear();
+			self.source.update();
+		}
+
+		fn serialize(self: DropStack, data: *main.List(u8)) void {
+			std.mem.writeInt(u32, data.addMany(4)[0..4], self.source.id, .big);
+			std.mem.writeInt(u32, data.addMany(4)[0..4], self.sourceSlot, .big);
+		}
+
+		fn deserialize(data: []const u8, side: Side, user: ?*main.server.User) !DropStack {
+			if(data.len != 8) return error.Invalid;
+			const sourceId = std.mem.readInt(u32, data[0..4], .big);
+			return .{
+				.source = InventorySync.getInventory(sourceId, side, user) orelse return error.Invalid,
+				.sourceSlot = std.mem.readInt(u32, data[4..8], .big),
+			};
+		}
+	};
+
+	const DropOne = struct {
+		source: Inventory,
+		sourceSlot: u32,
+
+		fn run(self: DropOne, allocator: NeverFailingAllocator, cmd: *InventoryCommand, side: Side) void {
+			if((self.source.type == .workbench or self.source.type == .crafting) and self.sourceSlot == self.source._items.len - 1) {
+				DropStack.run(.{.source = self.source, .sourceSlot = self.sourceSlot}, allocator, cmd, side);
+			}
+			if(self.source.type == .crafting) return;
+			if(self.source._items[self.sourceSlot].item == null) return;
+			if(side == .client) {
+				main.network.Protocols.genericUpdate.itemStackDrop(main.game.world.?.conn, .{.item = self.source.getStack(self.sourceSlot).item, .amount = 1}, @floatCast(main.game.Player.getPosBlocking()), main.game.camera.direction, 20);
+			}
+			cmd.undoSteps.append(allocator, .{.delete = .{
+				.source = self.source,
+				.sourceSlot = self.sourceSlot,
+				.item = .{.item = self.source._items[self.sourceSlot].item, .amount = 1},
+			}});
+			if(self.source._items[self.sourceSlot].amount == 1) {
+				self.source._items[self.sourceSlot].clear();
+			} else {
+				self.source._items[self.sourceSlot].amount -= 1;
+			}
+			self.source.update();
+		}
+
+		fn serialize(self: DropOne, data: *main.List(u8)) void {
+			std.mem.writeInt(u32, data.addMany(4)[0..4], self.source.id, .big);
+			std.mem.writeInt(u32, data.addMany(4)[0..4], self.sourceSlot, .big);
+		}
+
+		fn deserialize(data: []const u8, side: Side, user: ?*main.server.User) !DropOne {
+			if(data.len != 8) return error.Invalid;
+			const sourceId = std.mem.readInt(u32, data[0..4], .big);
+			return .{
+				.source = InventorySync.getInventory(sourceId, side, user) orelse return error.Invalid,
+				.sourceSlot = std.mem.readInt(u32, data[4..8], .big),
+			};
+		}
+	};
+
+	const FillFromCreative = struct {
+		dest: Inventory,
+		destSlot: u32,
+		item: ?Item,
+
+		fn run(self: FillFromCreative, allocator: NeverFailingAllocator, cmd: *InventoryCommand, _: Side) void {
+			if(self.dest.type == .crafting) return;
+			if(self.dest.type == .workbench and self.destSlot == 25) return;
+
+			if(!self.dest._items[self.destSlot].empty()) {
+				cmd.undoSteps.append(allocator, .{.delete = .{
+					.source = self.dest,
+					.sourceSlot = self.destSlot,
+					.item = self.dest._items[self.destSlot],
+				}});
+				self.dest._items[self.destSlot].clear();
+			}
+			if(self.item) |_item| {
+				self.dest._items[self.destSlot].item = _item;
+				self.dest._items[self.destSlot].amount = _item.stackSize();
+				cmd.undoSteps.append(allocator, .{.create = .{
+					.dest = self.dest,
+					.destSlot = self.destSlot,
+					.amount = _item.stackSize(),
+				}});
+			}
+			self.dest.update();
+		}
+
+		fn serialize(self: FillFromCreative, data: *main.List(u8)) void {
+			std.mem.writeInt(u32, data.addMany(4)[0..4], self.dest.id, .big);
+			std.mem.writeInt(u32, data.addMany(4)[0..4], self.destSlot, .big);
+			if(self.item) |item| {
+				const zon = ZonElement.initObject(main.stackAllocator);
+				defer zon.free(main.stackAllocator);
+				item.insertIntoZon(main.stackAllocator, zon);
+				const string = zon.toStringEfficient(main.stackAllocator, &.{});
+				defer main.stackAllocator.free(string);
+				data.appendSlice(string);
+			}
+		}
+
+		fn deserialize(data: []const u8, side: Side, user: ?*main.server.User) !FillFromCreative {
+			if(data.len < 8) return error.Invalid;
+			const destId = std.mem.readInt(u32, data[0..4], .big);
+			const destSlot = std.mem.readInt(u32, data[4..8], .big);
+			var item: ?Item = null;
+			if(data.len > 8) {
+				const zon = ZonElement.parseFromString(main.stackAllocator, data[8..]);
+				defer zon.free(main.stackAllocator);
+				item = try Item.init(zon);
+			}
+			return .{
+				.dest = InventorySync.getInventory(destId, side, user) orelse return error.Invalid,
+				.destSlot = destSlot,
+				.item = item,
+			};
+		}
+	};
+
+	const DepositOrDrop = struct {
+		dest: Inventory,
+		source: Inventory,
+
+		pub fn run(self: DepositOrDrop, allocator: NeverFailingAllocator, cmd: *InventoryCommand, side: Side) void {
+			std.debug.assert(self.dest.type == .normal);
+			if(self.source.type == .creative) return;
+			if(self.source.type == .crafting) return;
+			defer self.dest.update();
+			defer self.source.update();
+			var sourceItems = self.source._items;
+			if(self.source.type == .workbench) sourceItems = self.source._items[0..25];
+			outer: for(sourceItems, 0..) |*sourceStack, sourceSlot| {
+				if(sourceStack.item == null) continue;
+				for(self.dest._items, 0..) |*destStack, destSlot| {
+					if(std.meta.eql(destStack.item, sourceStack.item)) {
+						const amount = @min(destStack.item.?.stackSize() - destStack.amount, sourceStack.amount);
+						destStack.amount += amount;
+						sourceStack.amount -= amount;
+						cmd.undoSteps.append(allocator, .{.move = .{
+							.dest = self.dest,
+							.destSlot = @intCast(destSlot),
+							.source = self.source,
+							.sourceSlot = @intCast(sourceSlot),
+							.amount = amount,
+						}});
+						if(sourceStack.amount == 0) {
+							sourceStack.item = null;
+							continue :outer;
+						}
+					}
+				}
+				for(self.dest._items, 0..) |*destStack, destSlot| {
+					if(destStack.item == null) {
+						destStack.* = sourceStack.*;
+						sourceStack.amount = 0;
+						sourceStack.item = null;
+						cmd.undoSteps.append(allocator, .{.swap = .{
+							.dest = self.dest,
+							.destSlot = @intCast(destSlot),
+							.source = self.source,
+							.sourceSlot = @intCast(sourceSlot),
+						}});
+						continue :outer;
+					}
+				}
+				if(side == .client) {
+					main.network.Protocols.genericUpdate.itemStackDrop(main.game.world.?.conn, sourceStack.*, @floatCast(main.game.Player.getPosBlocking()), main.game.camera.direction, 20);
+				}
+				cmd.undoSteps.append(allocator, .{.delete = .{
+					.source = self.source,
+					.sourceSlot = @intCast(sourceSlot),
+					.item = self.source._items[sourceSlot],
+				}});
+				sourceStack.clear();
+			}
+		}
+
+		fn serialize(self: DepositOrDrop, data: *main.List(u8)) void {
+			std.mem.writeInt(u32, data.addMany(4)[0..4], self.dest.id, .big);
+			std.mem.writeInt(u32, data.addMany(4)[0..4], self.source.id, .big);
+		}
+
+		fn deserialize(data: []const u8, side: Side, user: ?*main.server.User) !DepositOrDrop {
+			if(data.len != 8) return error.Invalid;
+			const destId = std.mem.readInt(u32, data[0..4], .big);
+			const sourceId = std.mem.readInt(u32, data[4..8], .big);
+			return .{
+				.dest = InventorySync.getInventory(destId, side, user) orelse return error.Invalid,
+				.source = InventorySync.getInventory(sourceId, side, user) orelse return error.Invalid,
+			};
+		}
+	};
+};
+
 pub const Inventory = struct { // MARK: Inventory
-	const Type = enum {
-		normal,
-		creative,
-		crafting,
-		workbench,
+	const Type = enum(u8) {
+		normal = 0,
+		creative = 1,
+		crafting = 2,
+		workbench = 3,
 	};
 	type: Type,
+	id: u32,
 	_items: []ItemStack,
 
 	pub fn init(allocator: NeverFailingAllocator, _size: usize, _type: Type) Inventory {
+		const self = _init(allocator, _size, _type, .client);
+		InventorySync.executeCommand(.{.open = .{.inv = self}});
+		return self;
+	}
+
+	fn _init(allocator: NeverFailingAllocator, _size: usize, _type: Type, side: Side) Inventory {
 		if(_type == .workbench) std.debug.assert(_size == 26);
 		const self = Inventory{
 			.type = _type,
 			._items = allocator.alloc(ItemStack, _size),
+			.id = switch(side) {
+				.client => InventorySync.ClientSide.nextId(),
+				.server => InventorySync.ServerSide.nextId(),
+			},
 		};
 		for(self._items) |*item| {
 			item.* = ItemStack{};
@@ -1209,14 +2132,23 @@ pub const Inventory = struct { // MARK: Inventory
 	}
 
 	pub fn deinit(self: Inventory, allocator: NeverFailingAllocator) void {
+		InventorySync.executeCommand(.{.close = .{.inv = self, .allocator = allocator}});
+	}
+
+	fn _deinit(self: Inventory, allocator: NeverFailingAllocator, side: Side) void {
+		switch(side) {
+			.client => InventorySync.ClientSide.freeId(self.id),
+			.server => InventorySync.ServerSide.freeId(self.id),
+		}
 		for(self._items) |*item| {
-			item.clear();
+			item.deinit();
 		}
 		allocator.free(self._items);
 	}
 
 	fn update(self: Inventory) void {
 		if(self.type == .workbench) {
+			self._items[self._items.len - 1].deinit();
 			self._items[self._items.len - 1].clear();
 			var availableItems: [25]?*const BaseItem = undefined;
 			var nonEmpty: bool = false;
@@ -1235,152 +2167,16 @@ pub const Inventory = struct { // MARK: Inventory
 		}
 	}
 
-	fn removeToolCraftingIngredients(self: Inventory) void {
-		std.debug.assert(self.type == .workbench);
-		for(0..25) |i| {
-			if(self._items[i].amount != 0) {
-				self._items[i].amount -= 1;
-				if(self._items[i].amount == 0) {
-					self._items[i].item = null;
-				}
-			}
-		}
-	}
-
-	fn tryCraftingToCarried(inv: Inventory, slot: u32, carried: Inventory) void {
-		std.debug.assert(inv.type == .crafting);
-		if(slot != inv._items.len - 1) return;
-		if(carried._items[0].item != null and !std.meta.eql(carried._items[0].item, inv._items[slot].item)) return;
-		if(carried._items[0].amount + inv._items[slot].amount > inv._items[slot].item.?.stackSize()) return;
-
-		// Can we even craft it?
-		for(inv._items[0..slot]) |requiredStack| {
-			var amount: usize = 0;
-			// There might be duplicate entries:
-			for(inv._items[0..slot]) |otherStack| {
-				if(std.meta.eql(requiredStack.item, otherStack.item))
-					amount += otherStack.amount;
-			}
-			for(main.game.Player.inventory._items) |otherStack| {
-				if(std.meta.eql(requiredStack.item, otherStack.item))
-					amount -|= otherStack.amount;
-			}
-			// Not enough ingredients
-			if(amount != 0)
-				return;
-		}
-
-		// Craft it
-		for(inv._items[0..slot]) |requiredStack| {
-			var remainingAmount: usize = requiredStack.amount;
-			for(main.game.Player.inventory._items) |*otherStack| {
-				if(std.meta.eql(requiredStack.item, otherStack.item)) {
-					const amount = @min(remainingAmount, otherStack.amount);
-					otherStack.amount -= amount;
-					remainingAmount -= amount;
-					if(otherStack.amount == 0) otherStack.item = null;
-					if(remainingAmount == 0) break;
-				}
-			}
-			std.debug.assert(remainingAmount == 0);
-		}
-		carried._items[0].item = inv._items[slot].item;
-		carried._items[0].amount += inv._items[slot].amount;
-	}
-
 	pub fn depositOrSwap(dest: Inventory, destSlot: u32, carried: Inventory) void {
-		if(dest.type == .creative) {
-			return fillFromCreative(carried, 0, dest._items[destSlot].item);
-		}
-		if(dest.type == .crafting) {
-			tryCraftingToCarried(dest, destSlot, carried);
-			return;
-		}
-		if(dest.type == .workbench and destSlot == 25) {
-			if(carried._items[0].item == null and dest._items[destSlot].item != null) {
-				carried._items[0] = dest._items[destSlot];
-				dest._items[destSlot] = .{.item = null, .amount = 0};
-				dest.removeToolCraftingIngredients();
-				dest.update();
-			}
-			return;
-		}
-		defer dest.update();
-		if(dest._items[destSlot].item) |itemDest| {
-			if(carried._items[0].item) |itemSource| {
-				if(std.meta.eql(itemDest, itemSource)) {
-					if(dest._items[destSlot].amount >= itemDest.stackSize()) return;
-					const amount = @min(itemDest.stackSize() - dest._items[destSlot].amount, carried._items[0].amount);
-					dest._items[destSlot].amount += amount;
-					carried._items[0].amount -= amount;
-					if(carried._items[0].amount == 0) carried._items[0].item = null;
-					return;
-				}
-			}
-		}
-		const temp = dest._items[destSlot];
-		dest._items[destSlot] = carried._items[0];
-		carried._items[0] = temp;
+		InventorySync.executeCommand(.{.depositOrSwap = .{.dest = dest, .destSlot = destSlot, .source = carried, .sourceSlot = 0}});
 	}
 
 	pub fn deposit(dest: Inventory, destSlot: u32, carried: Inventory, amount: u16) void {
-		if(dest.type == .creative) return;
-		if(dest.type == .crafting) return;
-		if(dest.type == .workbench and destSlot == 25) return;
-		defer dest.update();
-		const itemSource = carried._items[0].item orelse return;
-		if(dest._items[destSlot].item) |itemDest| {
-			if(std.meta.eql(itemDest, itemSource)) {
-				if(dest._items[destSlot].amount >= itemDest.stackSize()) return;
-				dest._items[destSlot].amount += amount;
-				carried._items[0].amount -= amount;
-				if(carried._items[0].amount == 0) carried._items[0].item = null;
-			}
-		} else {
-			dest._items[destSlot].item = carried._items[0].item;
-			dest._items[destSlot].amount = amount;
-			carried._items[0].amount -= amount;
-			if(carried._items[0].amount == 0) carried._items[0].item = null;
-		}
+		InventorySync.executeCommand(.{.deposit = .{.dest = dest, .destSlot = destSlot, .source = carried, .sourceSlot = 0, .amount = amount}});
 	}
 
 	pub fn takeHalf(source: Inventory, sourceSlot: u32, carried: Inventory) void {
-		if(source.type == .creative) {
-			if(carried._items[0].item == null) {
-				fillFromCreative(carried, 0, source._items[sourceSlot].item);
-			}
-			return;
-		}
-		if(source.type == .crafting) {
-			tryCraftingToCarried(source, sourceSlot, carried);
-			return;
-		}
-		if(source.type == .workbench and sourceSlot == 25) {
-			if(carried._items[0].item == null and source._items[sourceSlot].item != null) {
-				carried._items[0] = source._items[sourceSlot];
-				source._items[sourceSlot] = .{.item = null, .amount = 0};
-				source.removeToolCraftingIngredients();
-				source.update();
-			}
-			return;
-		}
-		defer source.update();
-		const itemSource = source._items[sourceSlot].item orelse return;
-		const desiredAmount = (1 + source._items[sourceSlot].amount)/2;
-		if(carried._items[0].item) |itemDest| {
-			if(std.meta.eql(itemDest, itemSource)) {
-				if(carried._items[0].amount >= itemDest.stackSize()) return;
-				const amount = @min(itemDest.stackSize() - carried._items[0].amount, desiredAmount);
-				carried._items[0].amount += amount;
-				source._items[sourceSlot].amount -= amount;
-				if(source._items[sourceSlot].amount == 0) source._items[sourceSlot].item = null;
-			}
-		} else {
-			carried._items[0].item = source._items[sourceSlot].item;
-			carried._items[0].amount = desiredAmount;
-			source._items[sourceSlot].amount -= desiredAmount;
-			if(source._items[sourceSlot].amount == 0) source._items[sourceSlot].item = null;
-		}
+		InventorySync.executeCommand(.{.takeHalf = .{.dest = carried, .destSlot = 0, .source = source, .sourceSlot = sourceSlot}});
 	}
 
 	pub fn distribute(carried: Inventory, destinationInventories: []const Inventory, destinationSlots: []const u32) void {
@@ -1392,87 +2188,19 @@ pub const Inventory = struct { // MARK: Inventory
 	}
 
 	pub fn depositOrDrop(dest: Inventory, source: Inventory) void {
-		std.debug.assert(dest.type == .normal);
-		if(source.type == .creative) return;
-		if(source.type == .crafting) return;
-		defer dest.update();
-		defer source.update();
-		var sourceItems = source._items;
-		if(source.type == .workbench) sourceItems = source._items[0..25];
-		outer: for(sourceItems) |*sourceStack| {
-			if(sourceStack.item == null) continue;
-			for(dest._items) |*destStack| {
-				if(std.meta.eql(destStack.item, sourceStack.item)) {
-					const amount = @min(destStack.item.?.stackSize() - destStack.amount, sourceStack.amount);
-					destStack.amount += amount;
-					sourceStack.amount -= amount;
-					if(sourceStack.amount == 0) {
-						sourceStack.item = null;
-						continue :outer;
-					}
-				}
-			}
-			for(dest._items) |*destStack| {
-				if(destStack.item == null) {
-					destStack.* = sourceStack.*;
-					sourceStack.amount = 0;
-					sourceStack.item = null;
-					continue :outer;
-				}
-			}
-			main.network.Protocols.genericUpdate.itemStackDrop(main.game.world.?.conn, sourceStack.*, @floatCast(main.game.Player.getPosBlocking()), main.game.camera.direction, 20);
-			sourceStack.clear();
-		}
+		InventorySync.executeCommand(.{.depositOrDrop = .{.dest = dest, .source = source}});
 	}
 
 	pub fn dropStack(source: Inventory, sourceSlot: u32) void {
-		if(source.type == .creative) return;
-		if(source._items[sourceSlot].item == null) return;
-		if(source.type == .crafting) {
-			var _items: [1]ItemStack = .{.{.item = null, .amount = 0}};
-			const temp: Inventory = .{
-				.type = .normal,
-				._items = &_items,
-			};
-			tryCraftingToCarried(source, sourceSlot, temp);
-			if(_items[0].item != null) {
-				main.network.Protocols.genericUpdate.itemStackDrop(main.game.world.?.conn, _items[0], @floatCast(main.game.Player.getPosBlocking()), main.game.camera.direction, 20);
-			}
-			return;
-		}
-		if(source.type == .workbench and sourceSlot == 25) {
-			source.removeToolCraftingIngredients();
-		}
-		main.network.Protocols.genericUpdate.itemStackDrop(main.game.world.?.conn, source.getStack(sourceSlot), @floatCast(main.game.Player.getPosBlocking()), main.game.camera.direction, 20);
-		source._items[sourceSlot].clear();
-		source.update();
+		InventorySync.executeCommand(.{.dropStack = .{.source = source, .sourceSlot = sourceSlot}});
 	}
 
 	pub fn dropOne(source: Inventory, sourceSlot: u32) void {
-		if(source.type == .creative) return;
-		if(source.type == .crafting) return;
-		if(source._items[sourceSlot].item == null) return;
-		if(source.type == .workbench and sourceSlot == 25) {
-			source.removeToolCraftingIngredients();
-		}
-		main.network.Protocols.genericUpdate.itemStackDrop(main.game.world.?.conn, .{.item = source.getStack(sourceSlot).item, .amount = 1}, @floatCast(main.game.Player.getPosBlocking()), main.game.camera.direction, 20);
-		if(source._items[sourceSlot].amount == 1) {
-			source._items[sourceSlot].clear();
-		} else {
-			source._items[sourceSlot].amount -= 1;
-		}
-		source.update();
+		InventorySync.executeCommand(.{.dropOne = .{.source = source, .sourceSlot = sourceSlot}});
 	}
 
 	pub fn fillFromCreative(dest: Inventory, destSlot: u32, item: ?Item) void {
-		if(dest.type == .crafting) return;
-		if(dest.type == .workbench and destSlot == 25) return;
-		dest._items[destSlot].clear();
-		if(item) |_item| {
-			dest._items[destSlot].item = _item;
-			dest._items[destSlot].amount = _item.stackSize();
-		}
-		dest.update();
+		InventorySync.executeCommand(.{.fillFromCreative = .{.dest = dest, .destSlot = destSlot, .item = item}});
 	}
 
 	pub fn placeBlock(self: Inventory, slot: u32, unlimitedBlocks: bool) void {
@@ -1556,6 +2284,7 @@ pub fn globalInit() void {
 	reverseIndices = .init(arena.allocator().allocator);
 	recipeList = .init(arena.allocator());
 	itemListSize = 0;
+	InventorySync.ClientSide.init();
 }
 
 pub fn register(_: []const u8, texturePath: []const u8, replacementTexturePath: []const u8, id: []const u8, zon: ZonElement) *BaseItem {
@@ -1656,6 +2385,7 @@ pub fn deinit() void {
 	reverseIndices.clearAndFree();
 	recipeList.clearAndFree();
 	arena.deinit();
+	InventorySync.ClientSide.deinit();
 }
 
 pub fn getByID(id: []const u8) ?*BaseItem {

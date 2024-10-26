@@ -230,6 +230,8 @@ pub fn renderWorld(world: *World, ambientLight: Vec3f, skyColor: Vec3f, playerPo
 	c.glBlendFunc(c.GL_ONE, c.GL_SRC1_COLOR);
 	c.glDepthFunc(c.GL_LEQUAL);
 	c.glDepthMask(c.GL_FALSE);
+	c.glEnable(c.GL_POLYGON_OFFSET_FILL);
+	c.glPolygonOffset(1, 1); // Fixes z-fighting when directly on top of an opaque face.
 	{
 		chunkList.clearRetainingCapacity();
 		var i: usize = meshes.len;
@@ -243,6 +245,7 @@ pub fn renderWorld(world: *World, ambientLight: Vec3f, skyColor: Vec3f, playerPo
 			chunk_meshing.drawChunksIndirect(chunkList.items, game.projectionMatrix, ambientLight, playerPos, true);
 		}
 	}
+	c.glDisable(c.GL_POLYGON_OFFSET_FILL);
 	c.glDepthMask(c.GL_TRUE);
 	c.glDepthFunc(c.GL_LESS);
 	c.glBlendFunc(c.GL_SRC_ALPHA, c.GL_ONE_MINUS_SRC_ALPHA);
@@ -754,6 +757,7 @@ pub const MeshSelection = struct { // MARK: MeshSelection
 
 	pub fn placeBlock(inventoryStack: *main.items.ItemStack, unlimitedBlocks: bool) void {
 		const removeAmount: i32 = if(unlimitedBlocks) 0 else -1;
+		_ = removeAmount; // TODO
 		if(selectedBlockPos) |selectedPos| {
 			var block = mesh_storage.getBlock(selectedPos[0], selectedPos[1], selectedPos[2]) orelse return;
 			if(inventoryStack.item) |item| {
@@ -768,7 +772,7 @@ pub const MeshSelection = struct { // MARK: MeshSelection
 								if(rotationMode.generateData(main.game.world.?, selectedPos, relPos, lastDir, neighborDir, &block, false)) {
 									if(!canPlaceBlock(selectedPos, block)) return;
 									updateBlockAndSendUpdate(selectedPos[0], selectedPos[1], selectedPos[2], block);
-									_ = inventoryStack.add(item, @as(i32, removeAmount));
+									// TODO: _ = inventoryStack.add(item, @as(i32, removeAmount));
 									return;
 								}
 							}
@@ -781,7 +785,7 @@ pub const MeshSelection = struct { // MARK: MeshSelection
 								if(rotationMode.generateData(main.game.world.?, neighborPos, relPos, lastDir, neighborDir, &block, false)) {
 									if(!canPlaceBlock(neighborPos, block)) return;
 									updateBlockAndSendUpdate(neighborPos[0], neighborPos[1], neighborPos[2], block);
-									_ = inventoryStack.add(item, @as(i32, removeAmount));
+									// TODO: _ = inventoryStack.add(item, @as(i32, removeAmount));
 									return;
 								}
 							} else {
@@ -791,7 +795,7 @@ pub const MeshSelection = struct { // MARK: MeshSelection
 								if(rotationMode.generateData(main.game.world.?, neighborPos, relPos, lastDir, neighborDir, &block, true)) {
 									if(!canPlaceBlock(neighborPos, block)) return;
 									updateBlockAndSendUpdate(neighborPos[0], neighborPos[1], neighborPos[2], block);
-									_ = inventoryStack.add(item, @as(i32, removeAmount));
+									// TODO: _ = inventoryStack.add(item, @as(i32, removeAmount));
 									return;
 								}
 							}

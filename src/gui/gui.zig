@@ -22,6 +22,7 @@ pub const GuiComponent = @import("gui_component.zig").GuiComponent;
 pub const GuiWindow = @import("GuiWindow.zig");
 
 pub const windowlist = @import("windows/_windowlist.zig");
+const GamepadCursor = @import("gamepad_cursor.zig");
 
 var windowList: List(*GuiWindow) = undefined;
 var hudWindows: List(*GuiWindow) = undefined;
@@ -157,11 +158,12 @@ pub fn init() void { // MARK: init()
 	DiscreteSlider.__init();
 	TextInput.__init();
 	load();
-	inventory.init();
+	GamepadCursor.init();
 }
 
 pub fn deinit() void {
 	save();
+	GamepadCursor.deinit();
 	windowList.deinit();
 	hudWindows.deinit();
 	for(openWindows.items) |window| {
@@ -182,7 +184,6 @@ pub fn deinit() void {
 			WindowStruct.deinit();
 		}
 	}
-	inventory.deinit();
 	GuiCommandQueue.deinit();
 }
 
@@ -220,7 +221,7 @@ pub fn save() void { // MARK: save()
 		windowZon.put("scale", window.scale);
 		guiZon.put(window.id, windowZon);
 	}
-	
+
 	main.files.writeZon("gui_layout.zig.zon", guiZon) catch |err| {
 		std.log.err("Could not write gui_layout.zig.zon: {s}", .{@errorName(err)});
 	};
@@ -341,6 +342,7 @@ pub fn toggleWindow(id: []const u8) void {
 }
 
 pub fn openHud() void {
+	inventory.init();
 	for(windowList.items) |window| {
 		if(window.isHud) {
 			openWindowFromRef(window);
@@ -561,6 +563,9 @@ pub fn updateAndRenderGui() void {
 		}
 		inventory.render(mousePos);
 	}
+	const oldScale = draw.setScale(scale);
+	defer draw.restoreScale(oldScale);
+	GamepadCursor.render();
 }
 
 pub fn toggleGameMenu() void {
@@ -589,6 +594,7 @@ pub const inventory = struct { // MARK: inventory
 	var carriedItemSlot: *ItemSlot = undefined;
 	var leftClickSlots: List(*ItemSlot) = undefined;
 	var rightClickSlots: List(*ItemSlot) = undefined;
+	var initialized: bool = false;
 
 	pub fn init() void {
 		carried = Inventory.init(main.globalAllocator, 1, .normal);
@@ -596,9 +602,11 @@ pub const inventory = struct { // MARK: inventory
 		rightClickSlots = .init(main.globalAllocator);
 		carriedItemSlot = ItemSlot.init(.{0, 0}, carried, 0, .default, .normal);
 		carriedItemSlot.renderFrame = false;
+		initialized = true;
 	}
 
-	fn deinit() void {
+	pub fn deinit() void {
+		initialized = false;
 		carried.deinit(main.globalAllocator);
 		carriedItemSlot.deinit();
 		leftClickSlots.deinit();
@@ -606,6 +614,7 @@ pub const inventory = struct { // MARK: inventory
 	}
 
 	fn update() void {
+		if(!initialized) return;
 		if(hoveredItemSlot) |itemSlot| {
 			if(itemSlot.mode != .normal) return;
 
@@ -616,7 +625,9 @@ pub const inventory = struct { // MARK: inventory
 						return;
 					}
 				}
-				leftClickSlots.append(itemSlot);
+				if(itemSlot.inventory.getItem(itemSlot.itemSlot) == null) {
+					leftClickSlots.append(itemSlot);
+				}
 			} else if(main.KeyBoard.key("secondaryGuiButton").pressed) {
 				for(rightClickSlots.items) |deliveredSlot| {
 					if(itemSlot == deliveredSlot) {
@@ -630,6 +641,7 @@ pub const inventory = struct { // MARK: inventory
 	}
 
 	fn applyChanges(leftClick: bool) void {
+		if(!initialized) return;
 		if(main.game.world == null) return;
 		if(leftClick) {
 			if(leftClickSlots.items.len != 0) {
@@ -649,7 +661,7 @@ pub const inventory = struct { // MARK: inventory
 				carried.dropStack(0);
 			}
 		} else {
-			if(leftClickSlots.items.len != 0) {
+			if(rightClickSlots.items.len != 0) {
 				rightClickSlots.clearRetainingCapacity();
 			} else if(hoveredItemSlot) |hovered| {
 				hovered.inventory.takeHalf(hovered.itemSlot, carried);
@@ -660,6 +672,7 @@ pub const inventory = struct { // MARK: inventory
 	}
 
 	fn render(mousePos: Vec2f) void {
+		if(!initialized) return;
 		carriedItemSlot.pos = mousePos - Vec2f{12, 12};
 		carriedItemSlot.render(.{0, 0});
 		// Draw tooltip:

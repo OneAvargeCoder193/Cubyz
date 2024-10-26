@@ -45,9 +45,7 @@ pub const Compression = struct { // MARK: Compression
 				_ = try comp.write(&len);
 				_ = try comp.write(relPath);
 
-				const file = try sourceDir.openFile(relPath, .{});
-				defer file.close();
-				const fileData = try file.readToEndAlloc(main.stackAllocator.allocator, std.math.maxInt(u32));
+				const fileData = try sourceDir.readFileAlloc(main.stackAllocator.allocator, relPath, std.math.maxInt(usize));
 				defer main.stackAllocator.free(fileData);
 
 				std.mem.writeInt(u32, &len, @as(u32, @intCast(fileData.len)), .big);
@@ -78,9 +76,7 @@ pub const Compression = struct { // MARK: Compression
 			var splitter = std.mem.splitBackwardsScalar(u8, path, '/');
 			_ = splitter.first();
 			try outDir.makePath(splitter.rest());
-			const file = try outDir.createFile(path, .{});
-			defer file.close();
-			try file.writeAll(fileData);
+			try outDir.writeFile(.{.data = fileData, .sub_path = path});
 		}
 	}
 };
@@ -364,6 +360,12 @@ pub fn CircularBufferQueue(comptime T: type) type { // MARK: CircularBufferQueue
 			const result = self.mem[self.startIndex];
 			self.startIndex = (self.startIndex + 1) & self.mask;
 			return result;
+		}
+
+		pub fn dequeue_front(self: *Self) ?T {
+			if(self.startIndex == self.endIndex) return null;
+			self.endIndex = (self.endIndex -% 1) & self.mask;
+			return self.mem[self.endIndex];
 		}
 
 		pub fn peek(self: *Self) ?T {
@@ -1010,6 +1012,12 @@ pub fn BlockingMaxHeap(comptime T: type) type { // MARK: BlockingMaxHeap
 }
 
 pub const ThreadPool = struct { // MARK: ThreadPool
+	pub const TaskType = enum(usize) {
+		chunkgen,
+		meshgenAndLighting,
+		misc,
+	};
+	pub const taskTypes = std.enums.directEnumArrayLen(TaskType, 0);
 	const Task = struct {
 		cachedPriority: f32,
 		self: *anyopaque,
@@ -1024,6 +1032,41 @@ pub const ThreadPool = struct { // MARK: ThreadPool
 		isStillNeeded: *const fn(*anyopaque) bool,
 		run: *const fn(*anyopaque) void,
 		clean: *const fn(*anyopaque) void,
+		taskType: TaskType = .misc,
+	};
+	pub const Performance = struct {
+		mutex: std.Thread.Mutex = .{},
+		tasks: [taskTypes]u32,
+		utime: [taskTypes]i64,
+
+		fn add(self: *Performance, task: TaskType, time: i64) void {
+			self.mutex.lock();
+			defer self.mutex.unlock();
+			const i = @intFromEnum(task);
+			self.tasks[i] += 1;
+			self.utime[i] += time;
+		}
+
+		pub fn clear(self: *Performance) void {
+			self.mutex.lock();
+			defer self.mutex.unlock();
+			for(0..taskTypes) |i| {
+				self.tasks[i] = 0;
+				self.utime[i] = 0;
+			}
+		}
+
+		fn init(allocator: NeverFailingAllocator) *Performance {
+			const self = allocator.create(Performance);
+			self.clear();
+			return self;
+		}
+
+		pub fn read(self: *Performance) Performance {
+			self.mutex.lock();
+			defer self.mutex.unlock();
+			return self.*;
+		}
 	};
 	const refreshTime: u32 = 100; // The time after which all priorities get refreshed in milliseconds.
 
@@ -1032,11 +1075,14 @@ pub const ThreadPool = struct { // MARK: ThreadPool
 	loadList: *BlockingMaxHeap(Task),
 	allocator: NeverFailingAllocator,
 
+	performance: *Performance,
+
 	pub fn init(allocator: NeverFailingAllocator, threadCount: usize) ThreadPool {
 		const self = ThreadPool {
 			.threads = allocator.alloc(std.Thread, threadCount),
 			.currentTasks = allocator.alloc(Atomic(?*const VTable), threadCount),
 			.loadList = BlockingMaxHeap(Task).init(allocator),
+			.performance = Performance.init(allocator),
 			.allocator = allocator,
 		};
 		for(self.threads, 0..) |*thread, i| {
@@ -1064,6 +1110,7 @@ pub const ThreadPool = struct { // MARK: ThreadPool
 		}
 		self.allocator.free(self.currentTasks);
 		self.allocator.free(self.threads);
+		self.allocator.destroy(self.performance);
 	}
 
 	pub fn closeAllTasksOfType(self: ThreadPool, vtable: *const VTable) void {
@@ -1098,7 +1145,10 @@ pub const ThreadPool = struct { // MARK: ThreadPool
 			{
 				const task = self.loadList.extractMax() catch break;
 				self.currentTasks[id].store(task.vtable, .monotonic);
+				const start = std.time.microTimestamp();
 				task.vtable.run(task.self);
+				const end = std.time.microTimestamp();
+				self.performance.add(task.vtable.taskType, end - start);
 				self.currentTasks[id].store(null, .monotonic);
 			}
 
