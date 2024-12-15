@@ -48,10 +48,13 @@ pub const camera = struct { // MARK: camera
 };
 
 pub const collision = struct {
-	pub fn triangleAABB(triangle: [3]Vec3d, box_center: Vec3d, box_extents: Vec3d) bool {
+	pub fn triangleAABB(triangle: [3]Vec3d, box_center: Vec3d, box_extents: Vec3d) ?Vec3d {
 		const X = 0;
 		const Y = 1;
 		const Z = 2;
+
+		var min_penetration = std.math.floatMax(f64);
+		var mtv_axis = Vec3d{ 0.0, 0.0, 0.0 };
 
 		// Translate triangle as conceptually moving AABB to origin
 		const v0 = triangle[0] - box_center;
@@ -65,75 +68,85 @@ pub const collision = struct {
 
 		// Test axis a00
 		const a00 = Vec3d{0, -f0[Z], f0[Y]};
-		if (!test_axis(a00, v0, v1, v2, box_extents[Y] * @abs(f0[Z]) + box_extents[Z] * @abs(f0[Y]))) {
-			return false;
+		if (!test_and_update_mtv(a00, v0, v1, v2, box_extents[Y] * @abs(f0[Z]) + box_extents[Z] * @abs(f0[Y]), &mtv_axis, &min_penetration)) {
+			return null;
 		}
 
 		// Test axis a01
 		const a01 = Vec3d{0, -f1[Z], f1[Y]};
-		if (!test_axis(a01, v0, v1, v2, box_extents[Y] * @abs(f1[Z]) + box_extents[Z] * @abs(f1[Y]))) {
-			return false;
+		if (!test_and_update_mtv(a01, v0, v1, v2, box_extents[Y] * @abs(f1[Z]) + box_extents[Z] * @abs(f1[Y]), &mtv_axis, &min_penetration)) {
+			return null;
 		}
 
 		// Test axis a02
 		const a02 = Vec3d{0, -f2[Z], f2[Y]};
-		if (!test_axis(a02, v0, v1, v2, box_extents[Y] * @abs(f2[Z]) + box_extents[Z] * @abs(f2[Y]))) {
-			return false;
+		if (!test_and_update_mtv(a02, v0, v1, v2, box_extents[Y] * @abs(f2[Z]) + box_extents[Z] * @abs(f2[Y]), &mtv_axis, &min_penetration)) {
+			return null;
 		}
 
 		// Test axis a10
 		const a10 = Vec3d{f0[Z], 0, -f0[X]};
-		if (!test_axis(a10, v0, v1, v2, box_extents[X] * @abs(f0[Z]) + box_extents[Z] * @abs(f0[X]))) {
-			return false;
+		if (!test_and_update_mtv(a10, v0, v1, v2, box_extents[X] * @abs(f0[Z]) + box_extents[Z] * @abs(f0[X]), &mtv_axis, &min_penetration)) {
+			return null;
 		}
 
 		// Test axis a11
 		const a11 = Vec3d{f1[Z], 0, -f1[X]};
-		if (!test_axis(a11, v0, v1, v2, box_extents[X] * @abs(f1[Z]) + box_extents[Z] * @abs(f1[X]))) {
-			return false;
+		if (!test_and_update_mtv(a11, v0, v1, v2, box_extents[X] * @abs(f1[Z]) + box_extents[Z] * @abs(f1[X]), &mtv_axis, &min_penetration)) {
+			return null;
 		}
 
 		// Test axis a12
 		const a12 = Vec3d{f2[Z], 0, -f2[X]};
-		if (!test_axis(a12, v0, v1, v2, box_extents[X] * @abs(f2[Z]) + box_extents[Z] * @abs(f2[X]))) {
-			return false;
+		if (!test_and_update_mtv(a12, v0, v1, v2, box_extents[X] * @abs(f2[Z]) + box_extents[Z] * @abs(f2[X]), &mtv_axis, &min_penetration)) {
+			return null;
 		}
 
 		// Test axis a20
 		const a20 = Vec3d{-f0[Y], f0[X], 0};
-		if (!test_axis(a20, v0, v1, v2, box_extents[X] * @abs(f0[Y]) + box_extents[Y] * @abs(f0[X]))) {
-			return false;
+		if (!test_and_update_mtv(a20, v0, v1, v2, box_extents[X] * @abs(f0[Y]) + box_extents[Y] * @abs(f0[X]), &mtv_axis, &min_penetration)) {
+			return null;
 		}
 
 		// Test axis a21
 		const a21 = Vec3d{-f1[Y], f1[X], 0};
-		if (!test_axis(a21, v0, v1, v2, box_extents[X] * @abs(f1[Y]) + box_extents[Y] * @abs(f1[X]))) {
-			return false;
+		if (!test_and_update_mtv(a21, v0, v1, v2, box_extents[X] * @abs(f1[Y]) + box_extents[Y] * @abs(f1[X]), &mtv_axis, &min_penetration)) {
+			return null;
 		}
 
 		// Test axis a22
 		const a22 = Vec3d{-f2[Y], f2[X], 0};
-		if (!test_axis(a22, v0, v1, v2, box_extents[X] * @abs(f2[Y]) + box_extents[Y] * @abs(f2[X]))) {
-			return false;
+		if (!test_and_update_mtv(a22, v0, v1, v2, box_extents[X] * @abs(f2[Y]) + box_extents[Y] * @abs(f2[X]), &mtv_axis, &min_penetration)) {
+			return null;
 		}
 
 		// Test the three axes corresponding to the face normals of AABB
-		if (@max(v0[X], @max(v1[X], v2[X])) < -box_extents[X] or @min(v0[X], @min(v1[X], v2[X])) > box_extents[X]) {
-			return false;
-		}
-		if (@max(v0[Y], @max(v1[Y], v2[Y])) < -box_extents[Y] or @min(v0[Y], @min(v1[Y], v2[Y])) > box_extents[Y]) {
-			return false;
-		}
-		if (@max(v0[Z], @max(v1[Z], v2[Z])) < -box_extents[Z] or @min(v0[Z], @min(v1[Z], v2[Z])) > box_extents[Z]) {
-			return false;
-		}
+		if (!test_and_update_mtv(Vec3d{1, 0, 0}, v0, v1, v2, box_extents[X], &mtv_axis, &min_penetration)) return null;
+		if (!test_and_update_mtv(Vec3d{0, 1, 0}, v0, v1, v2, box_extents[Y], &mtv_axis, &min_penetration)) return null;
+		if (!test_and_update_mtv(Vec3d{0, 0, 1}, v0, v1, v2, box_extents[Z], &mtv_axis, &min_penetration)) return null;
 
 		// Test separating axis corresponding to triangle face normal
 		const plane_normal = vec.cross(f0, f1);
-		const plane_distance = @abs(vec.dot(plane_normal, v0));
 		const r = box_extents[X] * @abs(plane_normal[X]) + box_extents[Y] * @abs(plane_normal[Y]) + box_extents[Z] * @abs(plane_normal[Z]);
+		if (!test_and_update_mtv(plane_normal, v0, v1, v2, r, &mtv_axis, &min_penetration)) return null;
 
-		return plane_distance <= r;
+		// Return the Minimum Translation Vector (normalized axis * penetration depth)
+		return mtv_axis * @as(Vec3d, @splat(min_penetration));
+	}
+
+	fn test_and_update_mtv(axis: Vec3d, v0: Vec3d, v1: Vec3d, v2: Vec3d, r: f64, mtv_axis: *Vec3d, min_penetration: *f64) bool {
+		const p0 = vec.dot(v0, axis);
+		const p1 = vec.dot(v1, axis);
+		const p2 = vec.dot(v2, axis);
+		const min_p = @min(p0, @min(p1, p2));
+		const max_p = @max(p0, @max(p1, p2));
+		const overlap = r - @max(-max_p, min_p);
+		if (overlap < 0) return false;
+		if (overlap < min_penetration.*) {
+			min_penetration.* = overlap;
+			mtv_axis.* = axis;
+		}
+		return true;
 	}
 
 	fn test_axis(axis: Vec3d, v0: Vec3d, v1: Vec3d, v2: Vec3d, r: f64) bool {
@@ -147,8 +160,9 @@ pub const collision = struct {
 
 	const Direction = enum(u2) {x = 0, y = 1, z = 2};
 
-	pub fn collideWithBlock(block: main.blocks.Block, x: i32, y: i32, z: i32, entityPosition: Vec3d, entityBoundingBoxExtent: Vec3d, directionVector: Vec3d) ?struct{box: Box, dist: f64} {
-		var resultBox: ?Box = null;
+	pub fn collideWithBlock(block: main.blocks.Block, x: i32, y: i32, z: i32, entityPosition: Vec3d, entityBoundingBoxExtent: Vec3d, directionVector: Vec3d) ?struct{mtv: Vec3d, dist: f64} {
+		_ = directionVector;
+		var resultMtv: ?Vec3d = null;
 		var minDistance: f64 = std.math.floatMax(f64);
 		if(block.collide()) {
 			const model = &models.models.items[block.mode().model(block)];
@@ -158,28 +172,22 @@ pub const collision = struct {
 			for (model.neighborFacingQuads) |quads| {
 				for (quads) |quadIndex| {
 					const quad = &models.quads.items[quadIndex];
-					if (triangleAABB(.{quad.corners[0] + quad.normal + pos, quad.corners[2] + quad.normal + pos, quad.corners[1] + quad.normal + pos}, entityPosition, entityBoundingBoxExtent)) {
-						const min = @min(@min(quad.corners[0], quad.corners[1]), @min(quad.corners[2], quad.corners[3])) + quad.normal + pos;
-						const max = @max(@max(quad.corners[0], quad.corners[1]), @max(quad.corners[2], quad.corners[3])) + quad.normal + pos;
-						const dist = @min(vec.dot(directionVector, min), vec.dot(directionVector, max));
+					if (triangleAABB(.{quad.corners[0] + quad.normal + pos, quad.corners[2] + quad.normal + pos, quad.corners[1] + quad.normal + pos}, entityPosition, entityBoundingBoxExtent)) |mtv| {
+						// const min = @min(@min(quad.corners[0], quad.corners[1]), @min(quad.corners[2], quad.corners[3])) + quad.normal + pos;
+						// const max = @max(@max(quad.corners[0], quad.corners[1]), @max(quad.corners[2], quad.corners[3])) + quad.normal + pos;
+						const dist = vec.lengthSquare(mtv); //@min(vec.dot(directionVector, min), vec.dot(directionVector, max));
 						if(dist < minDistance) {
-							resultBox = .{.min = min, .max = max};
+							resultMtv = mtv;
 							minDistance = dist;
-						} else if(dist == minDistance) {
-							resultBox.?.min = @min(resultBox.?.min, min);
-							resultBox.?.max = @min(resultBox.?.max, max);
 						}
 					}
-					if (triangleAABB(.{quad.corners[1] + quad.normal + pos, quad.corners[2] + quad.normal + pos, quad.corners[3] + quad.normal + pos}, entityPosition, entityBoundingBoxExtent)) {
-						const min = @min(@min(quad.corners[0], quad.corners[1]), @min(quad.corners[2], quad.corners[3])) + quad.normal + pos;
-						const max = @max(@max(quad.corners[0], quad.corners[1]), @max(quad.corners[2], quad.corners[3])) + quad.normal + pos;
-						const dist = @min(vec.dot(directionVector, min), vec.dot(directionVector, max));
+					if (triangleAABB(.{quad.corners[1] + quad.normal + pos, quad.corners[2] + quad.normal + pos, quad.corners[3] + quad.normal + pos}, entityPosition, entityBoundingBoxExtent)) |mtv| {
+						// const min = @min(@min(quad.corners[0], quad.corners[1]), @min(quad.corners[2], quad.corners[3])) + quad.normal + pos;
+						// const max = @max(@max(quad.corners[0], quad.corners[1]), @max(quad.corners[2], quad.corners[3])) + quad.normal + pos;
+						const dist = vec.lengthSquare(mtv);//@min(vec.dot(directionVector, min), vec.dot(directionVector, max));
 						if(dist < minDistance) {
-							resultBox = .{.min = min, .max = max};
+							resultMtv = mtv;
 							minDistance = dist;
-						} else if(dist == minDistance) {
-							resultBox.?.min = @min(resultBox.?.min, min);
-							resultBox.?.max = @min(resultBox.?.max, max);
 						}
 					}
 				}
@@ -187,94 +195,54 @@ pub const collision = struct {
 
 			for (model.internalQuads) |quadIndex| {
 				const quad = &models.quads.items[quadIndex];
-				if (triangleAABB(.{quad.corners[0] + pos, quad.corners[2] + pos, quad.corners[1] + pos}, entityPosition, entityBoundingBoxExtent)) {
-					const min = @min(@min(quad.corners[0], quad.corners[1]), @min(quad.corners[2], quad.corners[3])) + pos;
-					const max = @max(@max(quad.corners[0], quad.corners[1]), @max(quad.corners[2], quad.corners[3])) + pos;
-					const dist = @min(vec.dot(directionVector, min), vec.dot(directionVector, max));
+				if (triangleAABB(.{quad.corners[0] + pos, quad.corners[2] + pos, quad.corners[1] + pos}, entityPosition, entityBoundingBoxExtent)) |mtv| {
+					// const min = @min(@min(quad.corners[0], quad.corners[1]), @min(quad.corners[2], quad.corners[3])) + pos;
+					// const max = @max(@max(quad.corners[0], quad.corners[1]), @max(quad.corners[2], quad.corners[3])) + pos;
+					const dist = vec.lengthSquare(mtv);//@min(vec.dot(directionVector, min), vec.dot(directionVector, max));
 					if(dist < minDistance) {
-						resultBox = .{.min = min, .max = max};
+						resultMtv = mtv;
 						minDistance = dist;
-					} else if(dist == minDistance) {
-						resultBox.?.min = @min(resultBox.?.min, min);
-						resultBox.?.max = @min(resultBox.?.max, max);
 					}
 				}
-				if (triangleAABB(.{quad.corners[1] + pos, quad.corners[2] + pos, quad.corners[3] + pos}, entityPosition, entityBoundingBoxExtent)) {
-					const min = @min(@min(quad.corners[0], quad.corners[1]), @min(quad.corners[2], quad.corners[3])) + pos;
-					const max = @max(@max(quad.corners[0], quad.corners[1]), @max(quad.corners[2], quad.corners[3])) + pos;
-					const dist = @min(vec.dot(directionVector, min), vec.dot(directionVector, max));
+				if (triangleAABB(.{quad.corners[1] + pos, quad.corners[2] + pos, quad.corners[3] + pos}, entityPosition, entityBoundingBoxExtent)) |mtv| {
+					// const min = @min(@min(quad.corners[0], quad.corners[1]), @min(quad.corners[2], quad.corners[3])) + pos;
+					// const max = @max(@max(quad.corners[0], quad.corners[1]), @max(quad.corners[2], quad.corners[3])) + pos;
+					const dist = vec.lengthSquare(mtv);//@min(vec.dot(directionVector, min), vec.dot(directionVector, max));
 					if(dist < minDistance) {
-						resultBox = .{.min = min, .max = max};
+						resultMtv = mtv;
 						minDistance = dist;
-					} else if(dist == minDistance) {
-						resultBox.?.min = @min(resultBox.?.min, min);
-						resultBox.?.max = @min(resultBox.?.max, max);
 					}
 				}
 			}
 		}
-		if(resultBox) |box| return .{.box = box, .dist = minDistance}
+		if(resultMtv) |mtv| return .{.mtv = mtv, .dist = minDistance}
 		else return null;
 	}
 
-	pub fn collides(comptime side: main.utils.Side, dir: Direction, amount: f64, pos: Vec3d, hitBox: Box) ?Box {
+	pub fn collides(comptime side: main.utils.Side, dir: Direction, amount: f64, pos: Vec3d, hitBox: Box) ?Vec3d {
+		_ = side;
+		_ = dir;
+		_ = amount;
+		
 		var boundingBox: Box = .{
 			.min = pos + hitBox.min,
 			.max = pos + hitBox.max,
 		};
-		switch (dir) {
-			.x => {
-				if(amount < 0) boundingBox.min[0] += amount else boundingBox.max[0] += amount;
-			},
-			.y => {
-				if(amount < 0) boundingBox.min[1] += amount else boundingBox.max[1] += amount;
-			},
-			.z => {
-				if(amount < 0) boundingBox.min[2] += amount else boundingBox.max[2] += amount;
-			},
-		}
-		const minX: i32 = @intFromFloat(@floor(boundingBox.min[0]));
-		const maxX: i32 = @intFromFloat(@floor(boundingBox.max[0] - 0.0001));
-		const minY: i32 = @intFromFloat(@floor(boundingBox.min[1]));
-		const maxY: i32 = @intFromFloat(@floor(boundingBox.max[1] - 0.0001));
-		const minZ: i32 = @intFromFloat(@floor(boundingBox.min[2]));
-		const maxZ: i32 = @intFromFloat(@floor(boundingBox.max[2] - 0.0001));
 
 		const boundingBoxCenter = boundingBox.center();
 		const fullBoundingBoxExtent = boundingBox.extent() - @as(Vec3d, @splat(0.00005));
 
-		var resultBox: ?Box = null;
-		var minDistance: f64 = std.math.floatMax(f64);
-		const directionVector: Vec3d = switch (dir) {
-			.x => .{-std.math.sign(amount), 0, 0},
-			.y => .{0, -std.math.sign(amount), 0},
-			.z => .{0, 0, -std.math.sign(amount)},
-		};
+		const col = triangleAABB([3]Vec3d {
+			.{-100, -100, 0},
+			.{100, -100, 0},
+			.{0, 100, 0}
+		}, boundingBoxCenter, fullBoundingBoxExtent);
 
-		var x: i32 = minX;
-		while (x <= maxX) : (x += 1) {
-			var y: i32 = minY;
-			while (y <= maxY) : (y += 1) {
-				var z: i32 = maxZ;
-				while (z >= minZ) : (z -= 1) {
-					const _block = if(side == .client) main.renderer.mesh_storage.getBlock(x, y, z)
-					else main.server.world.?.getBlock(x, y, z);
-					if (_block) |block| {
-						if(collideWithBlock(block, x, y, z, boundingBoxCenter, fullBoundingBoxExtent, directionVector)) |res| {
-							if(res.dist < minDistance) {
-								resultBox = res.box;
-								minDistance = res.dist;
-							} else if(res.dist == minDistance) {
-								resultBox.?.min = @min(resultBox.?.min, res.box.min);
-								resultBox.?.max = @min(resultBox.?.max, res.box.max);
-							}
-						}
-					}
-				}
-			}
+		if (col) |mtv| {
+			std.debug.print("{any}\n", .{mtv});
 		}
-
-		return resultBox;
+		
+		return col;
 	}
 
 	pub fn collideOrStep(comptime side: main.utils.Side, comptime dir: Direction, amount: f64, pos: Vec3d, hitBox: Box, steppingHeight: f64) Vec3d {
@@ -286,8 +254,8 @@ pub const collision = struct {
 		var checkPos = pos;
 		checkPos[index] += amount;
 
-		if (collision.collides(side, dir, -amount, checkPos, hitBox)) |box| {
-			const newFloor = box.max[2] + hitBox.max[2];
+		if (collision.collides(side, dir, -amount, checkPos, hitBox)) |mtv| {
+			const newFloor = mtv[2] + pos[2] + hitBox.max[2];
 			const heightDifference = newFloor - checkPos[2];
 			if (heightDifference <= steppingHeight) {
 				// If we collide but might be able to step up
@@ -301,9 +269,9 @@ pub const collision = struct {
 
 			// Otherwise move as close to the container as possible
 			if (amount < 0) {
-				resultingMovement[index] = box.max[index] - hitBox.min[index] - pos[index];
+				resultingMovement[index] = mtv[index] - pos[index];
 			} else {
-				resultingMovement[index] = box.min[index] - hitBox.max[index] - pos[index];
+				resultingMovement[index] = mtv[index] - pos[index];
 			}
 		}
 
@@ -953,17 +921,17 @@ pub fn update(deltaTime: f64) void { // MARK: update()
 		const wasOnGround = Player.onGround;
 		Player.onGround = false;
 		Player.super.pos[2] += move[2];
-		if (collision.collides(.client, .z, -move[2], Player.super.pos, hitBox)) |box| {
+		if (collision.collides(.client, .z, -move[2], Player.super.pos, hitBox)) |mtv| {
 			if (move[2] < 0) {
 				if(!wasOnGround) {
 					Player.eyeVel[2] = Player.super.vel[2];
-					Player.eyePos[2] -= (box.max[2] - hitBox.min[2] - Player.super.pos[2]);
+					Player.eyePos += mtv;
 				}
 				Player.onGround = true;
-				Player.super.pos[2] = box.max[2] - hitBox.min[2];
+				Player.super.pos += mtv;
 				Player.eyeCoyote = 0;
 			} else {
-				Player.super.pos[2] = box.min[2] - hitBox.max[2];
+				Player.super.pos += mtv;
 			}
 			Player.super.vel[2] = 0;
 

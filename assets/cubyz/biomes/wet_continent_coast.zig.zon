@@ -1,0 +1,28 @@
+.{
+	.properties = .{
+		.ocean,
+	},
+	.minHeight = -10,
+	.maxHeight = 6,
+	.roughness = 17,
+	.hills = 6,
+	.chance = 0,
+	.rivers = true,
+	.maxRadius = 1000,
+	.minRadius = 500,
+	.music = "cubyz:sunrise",
+
+
+	.parentBiomes = .{
+		.{
+			.id = "cubyz:wet_continent",
+		},
+	},
+
+	.maxSubBiomeCount = 64,
+
+	.ground_structure = .{
+		"3 cubyz:sand",
+		"3 cubyz:sandstone",
+	},
+}

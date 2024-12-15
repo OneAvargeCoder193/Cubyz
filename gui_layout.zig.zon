@@ -1,0 +1,385 @@
+.{
+	.pause_gear = .{
+		.relPos1 = .{
+			.otherAttachmentPoint = 2,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 2,
+		},
+		.scale = 5e-1,
+		.relPos0 = .{
+			.otherAttachmentPoint = 2,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 2,
+		},
+	},
+	.crosshair = .{
+		.relPos1 = .{
+			.type = .ratio,
+			.ratio = 5e-1,
+		},
+		.scale = 1e0,
+		.relPos0 = .{
+			.type = .ratio,
+			.ratio = 5e-1,
+		},
+	},
+	.debug_network_advanced = .{
+		.relPos1 = .{
+			.otherAttachmentPoint = 2,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 2,
+		},
+		.scale = 1e0,
+		.relPos0 = .{
+			.otherAttachmentPoint = 1,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 1,
+		},
+	},
+	.manage_players = .{
+		.relPos1 = .{
+			.type = .ratio,
+			.ratio = 5e-1,
+		},
+		.scale = 1e0,
+		.relPos0 = .{
+			.type = .ratio,
+			.ratio = 5e-1,
+		},
+	},
+	.multiplayer = .{
+		.relPos1 = .{
+			.otherAttachmentPoint = 1,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 1,
+		},
+		.scale = 1e0,
+		.relPos0 = .{
+			.otherAttachmentPoint = 1,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 1,
+		},
+	},
+	.sound = .{
+		.relPos1 = .{
+			.otherAttachmentPoint = 1,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 1,
+		},
+		.scale = 1e0,
+		.relPos0 = .{
+			.otherAttachmentPoint = 1,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 1,
+		},
+	},
+	.performance_graph = .{
+		.relPos1 = .{
+			.otherAttachmentPoint = 0,
+			.type = .attachedToWindow,
+			.reference = .chat,
+			.selfAttachmentPoint = 2,
+		},
+		.scale = 1e0,
+		.relPos0 = .{
+			.otherAttachmentPoint = 0,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 0,
+		},
+	},
+	.settings = .{
+		.relPos1 = .{
+			.otherAttachmentPoint = 1,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 1,
+		},
+		.scale = 1e0,
+		.relPos0 = .{
+			.otherAttachmentPoint = 1,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 1,
+		},
+	},
+	.chat = .{
+		.relPos1 = .{
+			.otherAttachmentPoint = 2,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 2,
+		},
+		.scale = 7.5e-1,
+		.relPos0 = .{
+			.otherAttachmentPoint = 0,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 0,
+		},
+	},
+	.graphics = .{
+		.relPos1 = .{
+			.otherAttachmentPoint = 1,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 1,
+		},
+		.scale = 1e0,
+		.relPos0 = .{
+			.otherAttachmentPoint = 1,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 1,
+		},
+	},
+	.hotbar = .{
+		.relPos1 = .{
+			.otherAttachmentPoint = 2,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 2,
+		},
+		.scale = 7.5e-1,
+		.relPos0 = .{
+			.otherAttachmentPoint = 1,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 1,
+		},
+	},
+	.pause = .{
+		.relPos1 = .{
+			.otherAttachmentPoint = 1,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 1,
+		},
+		.scale = 1e0,
+		.relPos0 = .{
+			.otherAttachmentPoint = 1,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 1,
+		},
+	},
+	.shared_inventory_testing = .{
+		.relPos1 = .{
+			.type = .ratio,
+			.ratio = 2.013888955116272e-1,
+		},
+		.scale = 7.5e-1,
+		.relPos0 = .{
+			.type = .ratio,
+			.ratio = 4.898437559604645e-1,
+		},
+	},
+	.save_selection = .{
+		.relPos1 = .{
+			.otherAttachmentPoint = 1,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 1,
+		},
+		.scale = 1e0,
+		.relPos0 = .{
+			.otherAttachmentPoint = 1,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 1,
+		},
+	},
+	.workbench = .{
+		.relPos1 = .{
+			.otherAttachmentPoint = 0,
+			.type = .attachedToWindow,
+			.reference = .inventory,
+			.selfAttachmentPoint = 2,
+		},
+		.scale = 1e0,
+		.relPos0 = .{
+			.otherAttachmentPoint = 1,
+			.type = .attachedToWindow,
+			.reference = .inventory,
+			.selfAttachmentPoint = 1,
+		},
+	},
+	.inventory = .{
+		.relPos1 = .{
+			.type = .ratio,
+			.ratio = 5.371527671813965e-1,
+		},
+		.scale = 7.5e-1,
+		.relPos0 = .{
+			.type = .ratio,
+			.ratio = 7.265625e-1,
+		},
+	},
+	.download_controller_mappings = .{
+		.relPos1 = .{
+			.otherAttachmentPoint = 2,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 2,
+		},
+		.scale = 1e0,
+		.relPos0 = .{
+			.otherAttachmentPoint = 2,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 2,
+		},
+	},
+	.controls = .{
+		.relPos1 = .{
+			.type = .ratio,
+			.ratio = 0e0,
+		},
+		.scale = 1e0,
+		.relPos0 = .{
+			.otherAttachmentPoint = 1,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 1,
+		},
+	},
+	.main = .{
+		.relPos1 = .{
+			.otherAttachmentPoint = 1,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 1,
+		},
+		.scale = 1e0,
+		.relPos0 = .{
+			.otherAttachmentPoint = 1,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 1,
+		},
+	},
+	.save_creation = .{
+		.relPos1 = .{
+			.otherAttachmentPoint = 1,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 1,
+		},
+		.scale = 1e0,
+		.relPos0 = .{
+			.otherAttachmentPoint = 1,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 1,
+		},
+	},
+	.inventory_crafting = .{
+		.relPos1 = .{
+			.otherAttachmentPoint = 1,
+			.type = .attachedToWindow,
+			.reference = .inventory,
+			.selfAttachmentPoint = 1,
+		},
+		.scale = 7.5e-1,
+		.relPos0 = .{
+			.otherAttachmentPoint = 2,
+			.type = .attachedToWindow,
+			.reference = .inventory,
+			.selfAttachmentPoint = 0,
+		},
+	},
+	.creative_inventory = .{
+		.relPos1 = .{
+			.otherAttachmentPoint = 1,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 1,
+		},
+		.scale = 7.5e-1,
+		.relPos0 = .{
+			.type = .ratio,
+			.ratio = 0e0,
+		},
+	},
+	.change_name = .{
+		.relPos1 = .{
+			.otherAttachmentPoint = 1,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 1,
+		},
+		.scale = 1e0,
+		.relPos0 = .{
+			.otherAttachmentPoint = 1,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 1,
+		},
+	},
+	.debug_network = .{
+		.relPos1 = .{
+			.otherAttachmentPoint = 2,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 2,
+		},
+		.scale = 1e0,
+		.relPos0 = .{
+			.otherAttachmentPoint = 2,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 2,
+		},
+	},
+	.advanced_controls = .{
+		.relPos1 = .{
+			.otherAttachmentPoint = 1,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 1,
+		},
+		.scale = 1e0,
+		.relPos0 = .{
+			.otherAttachmentPoint = 1,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 1,
+		},
+	},
+	.healthbar = .{
+		.relPos1 = .{
+			.otherAttachmentPoint = 0,
+			.type = .attachedToWindow,
+			.reference = .hotbar,
+			.selfAttachmentPoint = 2,
+		},
+		.scale = 7.5e-1,
+		.relPos0 = .{
+			.otherAttachmentPoint = 2,
+			.type = .attachedToWindow,
+			.reference = .hotbar,
+			.selfAttachmentPoint = 2,
+		},
+	},
+	.invite = .{
+		.relPos1 = .{
+			.type = .ratio,
+			.ratio = 5e-1,
+		},
+		.scale = 1e0,
+		.relPos0 = .{
+			.type = .ratio,
+			.ratio = 5e-1,
+		},
+	},
+	.debug = .{
+		.relPos1 = .{
+			.otherAttachmentPoint = 0,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 0,
+		},
+		.scale = 1e0,
+		.relPos0 = .{
+			.otherAttachmentPoint = 0,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 0,
+		},
+	},
+	.delete_world_confirmation = .{
+		.relPos1 = .{
+			.type = .ratio,
+			.ratio = 5e-1,
+		},
+		.scale = 1e0,
+		.relPos0 = .{
+			.type = .ratio,
+			.ratio = 5e-1,
+		},
+	},
+	.gpu_performance_measuring = .{
+		.relPos1 = .{
+			.otherAttachmentPoint = 0,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 0,
+		},
+		.scale = 1e0,
+		.relPos0 = .{
+			.otherAttachmentPoint = 2,
+			.type = .attachedToFrame,
+			.selfAttachmentPoint = 2,
+		},
+	},
+}

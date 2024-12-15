@@ -1,0 +1,20 @@
+.{
+	.properties = .{},
+	.minHeight = 16,
+	.maxHeight = 16,
+	.roughness = 10,
+	.hills = 2,
+	.chance = 0,
+	.parentBiomes = .{
+		.{
+			.id = "cubyz:dry_continent_coast",
+			.chance = 15,
+		},
+	},
+
+	.maxSubBiomeCount = 4,
+
+	.ground_structure = .{
+		"4 cubyz:sand",
+	},
+}

@@ -1,0 +1,27 @@
+.{
+	.properties = .{},
+	.minHeight = -32,
+	.maxHeight = 3,
+	.roughness = 5,
+	.hills = 10,
+	.maxRadius = 1500,
+	.minRadius = 1000,
+	.rivers = true,
+	.chance = 0,
+	.music = "cubyz:sunrise",
+
+	.maxSubBiomeCount = 8,
+
+	.parentBiomes = .{
+		.{
+			.id = "cubyz:tectonic_plate",
+			.chance = 0.5,
+		},
+
+	},
+
+	.ground_structure = .{
+		"5 cubyz:sand",
+		"4 cubyz:sandstone",
+	},
+}

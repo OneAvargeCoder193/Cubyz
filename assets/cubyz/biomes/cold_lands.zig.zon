@@ -1,0 +1,21 @@
+.{
+	.properties = .{},
+	.chance = 0,
+	.minHeight = 16,
+	.maxHeight = 16,
+	.roughness = 10,
+	.hills = 2,
+	.validPlayerSpawn = true,
+	.parentBiomes = .{
+		.{
+			.id = "cubyz:cold_continent_coast",
+			.chance = 15,
+		},
+	},
+
+	.maxSubBiomeCount = 4,
+
+	.ground_structure = .{
+		"4 cubyz:snow",
+	},
+}
