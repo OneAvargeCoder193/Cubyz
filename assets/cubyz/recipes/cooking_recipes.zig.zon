@@ -1,0 +1,10 @@
+.{
+	.{
+		.inputs = .{"cubyz:iron_ore", "cubyz:coal"},
+		.output = "cubyz:iron_ingot",
+	},
+	.{
+		.inputs = .{"cubyz:sand", "cubyz:coal"},
+		.output = "cubyz:glass/white",
+	}
+}
