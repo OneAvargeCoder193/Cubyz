@@ -121,7 +121,8 @@ pub fn updateViewport(width: u31, height: u31, fov: f32) void {
 	lastWidth = @intFromFloat(@as(f32, @floatFromInt(width))*main.settings.resolutionScale);
 	lastHeight = @intFromFloat(@as(f32, @floatFromInt(height))*main.settings.resolutionScale);
 	lastFov = fov;
-	game.projectionMatrix = Mat4f.perspective(std.math.degreesToRadians(fov), @as(f32, @floatFromInt(lastWidth))/@as(f32, @floatFromInt(lastHeight)), zNear, zFar);
+	// game.projectionMatrix = Mat4f.perspective(std.math.degreesToRadians(fov), @as(f32, @floatFromInt(lastWidth))/@as(f32, @floatFromInt(lastHeight)), zNear, zFar);
+	game.projectionMatrix = Mat4f.orthographic(-10, -10, 10, 10, zNear, zFar);
 	worldFrameBuffer.updateSize(lastWidth, lastHeight, c.GL_RGB16F);
 	worldFrameBuffer.unbind();
 }
@@ -179,7 +180,7 @@ pub fn renderWorld(world: *World, ambientLight: Vec3f, skyColor: Vec3f, playerPo
 	game.camera.updateViewMatrix();
 
 	// Uses FrustumCulling on the chunks.
-	const frustum = Frustum.init(Vec3f{0, 0, 0}, game.camera.viewMatrix, lastFov, lastWidth, lastHeight);
+	const frustum = Frustum.init(Vec3f{0, 0, 0}, game.camera.viewMatrix, 180, lastWidth, lastHeight);
 
 	const time: u32 = @intCast(std.time.milliTimestamp() & std.math.maxInt(u32));
 
