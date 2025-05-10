@@ -78,8 +78,12 @@ pub fn init() void {
 		.{.depthTest = false, .depthWrite = false},
 		.{.attachments = &.{.noBlending}},
 	);
-	worldFrameBuffer.init(true, c.GL_NEAREST, c.GL_CLAMP_TO_EDGE);
+	worldFrameBuffer.init(true, true, c.GL_NEAREST, c.GL_CLAMP_TO_EDGE);
 	worldFrameBuffer.updateSize(Window.width, Window.height, c.GL_RGB16F);
+	
+	sunFrameBuffer.init(false, true, c.GL_NEAREST, c.GL_CLAMP_TO_EDGE);
+	sunFrameBuffer.updateSize(8192, 8192, c.GL_RGB16F);
+
 	Bloom.init();
 	MeshSelection.init();
 	MenuBackGround.init() catch |err| {
@@ -97,6 +101,7 @@ pub fn deinit() void {
 	deferredRenderPassPipeline.deinit();
 	fakeReflectionPipeline.deinit();
 	worldFrameBuffer.deinit();
+	sunFrameBuffer.deinit();
 	Bloom.deinit();
 	MeshSelection.deinit();
 	MenuBackGround.deinit();
@@ -109,7 +114,7 @@ pub fn deinit() void {
 fn initReflectionCubeMap() void {
 	c.glViewport(0, 0, reflectionCubeMapSize, reflectionCubeMapSize);
 	var framebuffer: graphics.FrameBuffer = undefined;
-	framebuffer.init(false, c.GL_LINEAR, c.GL_CLAMP_TO_EDGE);
+	framebuffer.init(true, false, c.GL_LINEAR, c.GL_CLAMP_TO_EDGE);
 	defer framebuffer.deinit();
 	framebuffer.bind();
 	fakeReflectionPipeline.bind(null);
@@ -126,6 +131,7 @@ fn initReflectionCubeMap() void {
 }
 
 var worldFrameBuffer: graphics.FrameBuffer = undefined;
+var sunFrameBuffer: graphics.FrameBuffer = undefined;
 
 pub var lastWidth: u31 = 0;
 pub var lastHeight: u31 = 0;
@@ -135,6 +141,8 @@ pub fn updateViewport(width: u31, height: u31, fov: f32) void {
 	lastHeight = @intFromFloat(@as(f32, @floatFromInt(height))*main.settings.resolutionScale);
 	lastFov = fov;
 	game.projectionMatrix = Mat4f.perspective(std.math.degreesToRadians(fov), @as(f32, @floatFromInt(lastWidth))/@as(f32, @floatFromInt(lastHeight)), zNear, zFar);
+	game.sunProjectionMatrix = Mat4f.orthographic(-2000, 2000, -2000, 2000, zNear, zFar);
+	game.sunProjectionInverseMatrix = Mat4f.orthographicInverse(-2000, 2000, -2000, 2000, zNear, zFar);
 	worldFrameBuffer.updateSize(lastWidth, lastHeight, c.GL_RGB16F);
 	worldFrameBuffer.unbind();
 }
@@ -150,7 +158,18 @@ pub fn render(playerPosition: Vec3d, deltaTime: f64) void {
 		game.fog.skyColor = vec.xyz(world.clearColor);
 
 		itemdrop.ItemDisplayManager.update(deltaTime);
-		renderWorld(world, ambient, Skybox.getSkyColor(), playerPosition);
+		const invRotationMatrix = game.camera.viewMatrix.transpose();
+		const direction = vec.xyz(invRotationMatrix.mulVec(Vec4f{0, 1, 0, 1}));
+		renderSun(world, ambient, playerPosition - direction * @as(Vec3f, @splat(3000)));
+
+		const tex: main.graphics.Texture = .{ .textureID = sunFrameBuffer.depthTexture };
+		
+		c.glBindFramebuffer(c.GL_FRAMEBUFFER, activeFrameBuffer);
+
+		tex.render(.{0, 0}, .{@floatFromInt(Window.width), @floatFromInt(Window.height)});
+
+		c.glBindFramebuffer(c.GL_FRAMEBUFFER, 0);
+
 		const startTime = std.time.milliTimestamp();
 		mesh_storage.updateMeshes(startTime + maximumMeshTime);
 	} else {
@@ -180,6 +199,46 @@ pub fn crosshairDirection(rotationMatrix: Mat4f, fovY: f32, width: u31, height: 
 
 	const adjusted = forwards + horizontal + vertical;
 	return adjusted;
+}
+
+pub fn renderSun(world: *World, ambientLight: Vec3f, playerPos: Vec3d) void { // MARK: renderWorld()
+	sunFrameBuffer.bind();
+	c.glViewport(0, 0, lastWidth, lastHeight);
+	gpu_performance_measuring.startQuery(.clear);
+	sunFrameBuffer.clear(Vec4f{0, 0, 0, 1});
+	gpu_performance_measuring.stopQuery();
+	game.camera.updateViewMatrix();
+
+	const time: u32 = @intCast(std.time.milliTimestamp() & std.math.maxInt(u32));
+
+	gpu_performance_measuring.startQuery(.skybox);
+	Skybox.render();
+	gpu_performance_measuring.stopQuery();
+
+	gpu_performance_measuring.startQuery(.animation);
+	blocks.meshes.preProcessAnimationData(time);
+	gpu_performance_measuring.stopQuery();
+
+	// Update the uniforms. The uniforms are needed to render the replacement meshes.
+	chunk_meshing.bindShaderAndUniforms(game.sunProjectionMatrix, ambientLight, playerPos);
+
+	chunk_meshing.quadsDrawn = 0;
+	chunk_meshing.transparentQuadsDrawn = 0;
+	const meshes = mesh_storage.updateAndGetRenderChunks(world.conn, null, playerPos, settings.renderDistance);
+
+	gpu_performance_measuring.startQuery(.chunk_rendering_preparation);
+
+	chunk_meshing.beginRender();
+
+	var chunkList = main.List(u32).init(main.stackAllocator);
+	defer chunkList.deinit();
+	for(meshes) |mesh| {
+		mesh.prepareRendering(&chunkList);
+	}
+	gpu_performance_measuring.stopQuery();
+	if(chunkList.items.len != 0) {
+		chunk_meshing.drawChunksIndirect(chunkList.items, game.sunProjectionMatrix, ambientLight, playerPos, false);
+	}
 }
 
 pub fn renderWorld(world: *World, ambientLight: Vec3f, skyColor: Vec3f, playerPos: Vec3d) void { // MARK: renderWorld()
@@ -216,7 +275,7 @@ pub fn renderWorld(world: *World, ambientLight: Vec3f, skyColor: Vec3f, playerPo
 
 	chunk_meshing.quadsDrawn = 0;
 	chunk_meshing.transparentQuadsDrawn = 0;
-	const meshes = mesh_storage.updateAndGetRenderChunks(world.conn, &frustum, playerPos, settings.renderDistance);
+	const meshes = mesh_storage.updateAndGetRenderChunks(world.conn, &frustum, main.game.Player.super.pos, settings.renderDistance);
 
 	gpu_performance_measuring.startQuery(.chunk_rendering_preparation);
 	const direction = crosshairDirection(game.camera.viewMatrix, lastFov, lastWidth, lastHeight);
@@ -335,8 +394,8 @@ const Bloom = struct { // MARK: Bloom
 	} = undefined;
 
 	pub fn init() void {
-		buffer1.init(false, c.GL_LINEAR, c.GL_CLAMP_TO_EDGE);
-		buffer2.init(false, c.GL_LINEAR, c.GL_CLAMP_TO_EDGE);
+		buffer1.init(true, false, c.GL_LINEAR, c.GL_CLAMP_TO_EDGE);
+		buffer2.init(true, false, c.GL_LINEAR, c.GL_CLAMP_TO_EDGE);
 		emptyBuffer = .init();
 		emptyBuffer.generate(graphics.Image.emptyImage);
 		firstPassPipeline = graphics.Pipeline.init(
@@ -587,7 +646,7 @@ pub const MenuBackGround = struct {
 		defer updateViewport(Window.width, Window.height, settings.fov);
 
 		var buffer: graphics.FrameBuffer = undefined;
-		buffer.init(true, c.GL_NEAREST, c.GL_REPEAT);
+		buffer.init(true, true, c.GL_NEAREST, c.GL_REPEAT);
 		defer buffer.deinit();
 		buffer.updateSize(size, size, c.GL_RGBA8);
 

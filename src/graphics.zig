@@ -2010,15 +2010,17 @@ pub fn LargeBuffer(comptime Entry: type) type { // MARK: LargerBuffer
 
 pub const FrameBuffer = struct { // MARK: FrameBuffer
 	frameBuffer: c_uint,
+	hasTexture: bool,
 	texture: c_uint,
 	hasDepthTexture: bool,
 	depthTexture: c_uint,
 
-	pub fn init(self: *FrameBuffer, hasDepthTexture: bool, textureFilter: c_int, textureWrap: c_int) void {
+	pub fn init(self: *FrameBuffer, hasTexture: bool, hasDepthTexture: bool, textureFilter: c_int, textureWrap: c_int) void {
 		self.* = FrameBuffer{
 			.frameBuffer = undefined,
 			.texture = undefined,
 			.depthTexture = undefined,
+			.hasTexture = hasTexture,
 			.hasDepthTexture = hasDepthTexture,
 		};
 		c.glGenFramebuffers(1, &self.frameBuffer);
@@ -2032,13 +2034,15 @@ pub const FrameBuffer = struct { // MARK: FrameBuffer
 			c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_T, textureWrap);
 			c.glFramebufferTexture2D(c.GL_FRAMEBUFFER, c.GL_DEPTH_ATTACHMENT, c.GL_TEXTURE_2D, self.depthTexture, 0);
 		}
-		c.glGenTextures(1, &self.texture);
-		c.glBindTexture(c.GL_TEXTURE_2D, self.texture);
-		c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, textureFilter);
-		c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, textureFilter);
-		c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_S, textureWrap);
-		c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_T, textureWrap);
-		c.glFramebufferTexture2D(c.GL_FRAMEBUFFER, c.GL_COLOR_ATTACHMENT0, c.GL_TEXTURE_2D, self.texture, 0);
+		if (hasTexture) {
+			c.glGenTextures(1, &self.texture);
+			c.glBindTexture(c.GL_TEXTURE_2D, self.texture);
+			c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, textureFilter);
+			c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, textureFilter);
+			c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_S, textureWrap);
+			c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_T, textureWrap);
+			c.glFramebufferTexture2D(c.GL_FRAMEBUFFER, c.GL_COLOR_ATTACHMENT0, c.GL_TEXTURE_2D, self.texture, 0);
+		}
 
 		c.glBindFramebuffer(c.GL_FRAMEBUFFER, 0);
 	}
@@ -2048,7 +2052,9 @@ pub const FrameBuffer = struct { // MARK: FrameBuffer
 		if(self.hasDepthTexture) {
 			c.glDeleteRenderbuffers(1, &self.depthTexture);
 		}
-		c.glDeleteTextures(1, &self.texture);
+		if (self.hasTexture) {
+			c.glDeleteTextures(1, &self.texture);
+		}
 	}
 
 	pub fn updateSize(self: *FrameBuffer, _width: u31, _height: u31, internalFormat: c_int) void {
@@ -2060,8 +2066,10 @@ pub const FrameBuffer = struct { // MARK: FrameBuffer
 			c.glTexImage2D(c.GL_TEXTURE_2D, 0, c.GL_DEPTH_COMPONENT32F, width, height, 0, c.GL_DEPTH_COMPONENT, c.GL_FLOAT, null);
 		}
 
-		c.glBindTexture(c.GL_TEXTURE_2D, self.texture);
-		c.glTexImage2D(c.GL_TEXTURE_2D, 0, internalFormat, width, height, 0, c.GL_RGBA, c.GL_UNSIGNED_BYTE, null);
+		if (self.hasTexture) {
+			c.glBindTexture(c.GL_TEXTURE_2D, self.texture);
+			c.glTexImage2D(c.GL_TEXTURE_2D, 0, internalFormat, width, height, 0, c.GL_RGBA, c.GL_UNSIGNED_BYTE, null);
+		}
 	}
 
 	pub fn clear(_: FrameBuffer, clearColor: Vec4f) void {
@@ -2083,6 +2091,7 @@ pub const FrameBuffer = struct { // MARK: FrameBuffer
 	}
 
 	pub fn bindTexture(self: *const FrameBuffer, target: c_uint) void {
+		std.debug.assert(self.hasTexture);
 		c.glActiveTexture(target);
 		c.glBindTexture(c.GL_TEXTURE_2D, self.texture);
 	}
@@ -2541,7 +2550,7 @@ pub fn generateBlockTexture(blockType: u16) Texture {
 
 	var frameBuffer: FrameBuffer = undefined;
 
-	frameBuffer.init(false, c.GL_NEAREST, c.GL_REPEAT);
+	frameBuffer.init(true, false, c.GL_NEAREST, c.GL_REPEAT);
 	defer frameBuffer.deinit();
 	frameBuffer.updateSize(textureSize, textureSize, c.GL_RGBA16F);
 	frameBuffer.bind();
@@ -2622,7 +2631,7 @@ pub fn generateBlockTexture(blockType: u16) Texture {
 
 	c.glDisable(c.GL_CULL_FACE);
 	var finalFrameBuffer: FrameBuffer = undefined;
-	finalFrameBuffer.init(false, c.GL_NEAREST, c.GL_REPEAT);
+	finalFrameBuffer.init(true, false, c.GL_NEAREST, c.GL_REPEAT);
 	finalFrameBuffer.updateSize(textureSize, textureSize, c.GL_RGBA8);
 	finalFrameBuffer.bind();
 	const texture = Texture{.textureID = finalFrameBuffer.texture};

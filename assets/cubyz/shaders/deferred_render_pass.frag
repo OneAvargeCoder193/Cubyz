@@ -11,12 +11,16 @@ layout(binding = 4) uniform sampler2D depthTexture;
 
 layout(binding = 5) uniform sampler2D bloomColor;
 
+layout(binding = 6) uniform sampler2D sunDepthTexture;
+
 layout(location = 1) uniform vec2 tanXY;
 layout(location = 2) uniform float zNear;
 layout(location = 3) uniform float zFar;
 
 layout(location = 4) uniform ivec3 playerPositionInteger;
 layout(location = 5) uniform vec3 playerPositionFraction;
+
+layout(location = 6) uniform float sunInverseProjectionMatrix;
 
 struct Fog {
 	vec3 color;
@@ -89,6 +93,9 @@ void main() {
 	);
 	float densityAdjustment = sqrt(dot(tanXY*(clampedTexCoords*2 - 1), tanXY*(clampedTexCoords*2 - 1)) + 1);
 	float dist = zFromDepth(texture(depthTexture, texCoords).r);
+
+	vec3 pos = playerPositionFraction + 
+	
 	float fogDistance = calculateFogDistance(dist, densityAdjustment, playerPositionFraction.z, normalize(direction).z, fog.density, fog.fogLower - playerPositionInteger.z, fog.fogHigher - playerPositionInteger.z);
 	fragColor.rgb = applyFrontfaceFog(fogDistance, fog.color, fragColor.rgb);
 	float maxColor = max(1.0, max(fragColor.r, max(fragColor.g, fragColor.b)));
