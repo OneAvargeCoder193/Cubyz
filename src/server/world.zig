@@ -16,6 +16,7 @@ const Vec3i = vec.Vec3i;
 const Vec3d = vec.Vec3d;
 const Vec3f = vec.Vec3f;
 const terrain = server.terrain;
+const NeverFailingAllocator = main.heap.NeverFailingAllocator;
 
 const server = @import("server.zig");
 const User = server.User;
@@ -393,6 +394,7 @@ const WorldIO = struct { // MARK: WorldIO
 		self.world.spawn = worldData.get(Vec3i, "spawn", .{0, 0, 0});
 		self.world.biomeChecksum = worldData.get(i64, "biomeChecksum", 0);
 		self.world.name = main.globalAllocator.dupe(u8, worldData.get([]const u8, "name", self.world.path));
+		self.world.tickSpeed = worldData.get(u32, "tickSpeed", 12);
 	}
 
 	pub fn saveWorldData(self: WorldIO) !void {
@@ -406,6 +408,7 @@ const WorldIO = struct { // MARK: WorldIO
 		worldData.put("biomeChecksum", self.world.biomeChecksum);
 		worldData.put("name", self.world.name);
 		worldData.put("lastUsedTime", std.time.milliTimestamp());
+		worldData.put("tickSpeed", self.world.tickSpeed);
 		// TODO: Save entities
 		try self.dir.writeZon("world.zig.zon", worldData);
 	}
@@ -417,6 +420,7 @@ pub const ServerWorld = struct { // MARK: ServerWorld
 	itemDropManager: ItemDropManager = undefined,
 	blockPalette: *main.assets.Palette = undefined,
 	itemPalette: *main.assets.Palette = undefined,
+	toolPalette: *main.assets.Palette = undefined,
 	biomePalette: *main.assets.Palette = undefined,
 	chunkManager: ChunkManager = undefined,
 
@@ -425,6 +429,8 @@ pub const ServerWorld = struct { // MARK: ServerWorld
 	lastUpdateTime: i64,
 	lastUnimportantDataSent: i64,
 	doGameTimeCycle: bool = true,
+
+	tickSpeed: u32 = 12,
 
 	defaultGamemode: main.game.Gamemode = undefined,
 	allowCheats: bool = undefined,
@@ -512,29 +518,27 @@ pub const ServerWorld = struct { // MARK: ServerWorld
 		self.wio = WorldIO.init(try files.openDir(try std.fmt.allocPrint(arenaAllocator.allocator, "saves/{s}", .{path})), self);
 		errdefer self.wio.deinit();
 
-		const blockPaletteZon = files.readToZon(arenaAllocator, try std.fmt.allocPrint(arenaAllocator.allocator, "saves/{s}/palette.zig.zon", .{path})) catch .null;
-		self.blockPalette = try main.assets.Palette.init(main.globalAllocator, blockPaletteZon, "cubyz:air");
+		self.blockPalette = try loadPalette(arenaAllocator, path, "palette", "cubyz:air");
 		errdefer self.blockPalette.deinit();
-		std.log.info("Loaded save block palette with {} blocks.", .{self.blockPalette.size()});
 
-		const itemPaletteZon = files.readToZon(arenaAllocator, try std.fmt.allocPrint(arenaAllocator.allocator, "saves/{s}/item_palette.zig.zon", .{path})) catch .null;
-		self.itemPalette = try main.assets.Palette.init(main.globalAllocator, itemPaletteZon, null);
+		self.itemPalette = try loadPalette(arenaAllocator, path, "item_palette", null);
 		errdefer self.itemPalette.deinit();
-		std.log.info("Loaded save item palette with {} items.", .{self.itemPalette.size()});
 
-		const biomePaletteZon = files.readToZon(arenaAllocator, try std.fmt.allocPrint(arenaAllocator.allocator, "saves/{s}/biome_palette.zig.zon", .{path})) catch .null;
-		self.biomePalette = try main.assets.Palette.init(main.globalAllocator, biomePaletteZon, null);
+		self.toolPalette = try loadPalette(arenaAllocator, path, "tool_palette", null);
+		errdefer self.toolPalette.deinit();
+
+		self.biomePalette = try loadPalette(arenaAllocator, path, "biome_palette", null);
 		errdefer self.biomePalette.deinit();
-		std.log.info("Loaded save biome palette with {} biomes.", .{self.biomePalette.size()});
 
 		errdefer main.assets.unloadAssets();
 
 		self.seed = try self.wio.loadWorldSeed();
-		try main.assets.loadWorldAssets(try std.fmt.allocPrint(arenaAllocator.allocator, "saves/{s}/assets/", .{path}), self.blockPalette, self.itemPalette, self.biomePalette);
+		try main.assets.loadWorldAssets(try std.fmt.allocPrint(arenaAllocator.allocator, "saves/{s}/assets/", .{path}), self.blockPalette, self.itemPalette, self.toolPalette, self.biomePalette);
 		// Store the block palette now that everything is loaded.
 		try files.writeZon(try std.fmt.allocPrint(arenaAllocator.allocator, "saves/{s}/palette.zig.zon", .{path}), self.blockPalette.storeToZon(arenaAllocator));
-		try files.writeZon(try std.fmt.allocPrint(arenaAllocator.allocator, "saves/{s}/biome_palette.zig.zon", .{path}), self.biomePalette.storeToZon(arenaAllocator));
 		try files.writeZon(try std.fmt.allocPrint(arenaAllocator.allocator, "saves/{s}/item_palette.zig.zon", .{path}), self.itemPalette.storeToZon(arenaAllocator));
+		try files.writeZon(try std.fmt.allocPrint(arenaAllocator.allocator, "saves/{s}/tool_palette.zig.zon", .{path}), self.toolPalette.storeToZon(arenaAllocator));
+		try files.writeZon(try std.fmt.allocPrint(arenaAllocator.allocator, "saves/{s}/biome_palette.zig.zon", .{path}), self.biomePalette.storeToZon(arenaAllocator));
 
 		var gamerules = files.readToZon(arenaAllocator, try std.fmt.allocPrint(arenaAllocator.allocator, "saves/{s}/gamerules.zig.zon", .{path})) catch ZonElement.initObject(arenaAllocator);
 
@@ -545,6 +549,15 @@ pub const ServerWorld = struct { // MARK: ServerWorld
 		self.chunkManager = try ChunkManager.init(self, generatorSettings);
 		errdefer self.chunkManager.deinit();
 		return self;
+	}
+
+	pub fn loadPalette(allocator: NeverFailingAllocator, worldName: []const u8, paletteName: []const u8, firstEntry: ?[]const u8) !*Palette {
+		const path = try std.fmt.allocPrint(main.stackAllocator.allocator, "saves/{s}/{s}.zig.zon", .{worldName, paletteName});
+		defer main.stackAllocator.allocator.free(path);
+		const paletteZon = files.readToZon(allocator, path) catch .null;
+		const palette = try main.assets.Palette.init(main.globalAllocator, paletteZon, firstEntry);
+		std.log.info("Loaded {s} with {} entries.", .{paletteName, palette.size()});
+		return palette;
 	}
 
 	pub fn deinit(self: *ServerWorld) void {
@@ -565,6 +578,7 @@ pub const ServerWorld = struct { // MARK: ServerWorld
 		self.itemDropManager.deinit();
 		self.blockPalette.deinit();
 		self.itemPalette.deinit();
+		self.toolPalette.deinit();
 		self.biomePalette.deinit();
 		self.wio.deinit();
 		main.globalAllocator.free(self.path);
@@ -922,6 +936,42 @@ pub const ServerWorld = struct { // MARK: ServerWorld
 		self.dropWithCooldown(stack, pos, dir, velocity, 0);
 	}
 
+	fn tickBlocksInChunk(self: *ServerWorld, _chunk: *chunk.ServerChunk) void {
+		for(0..self.tickSpeed) |_| {
+			const blockIndex: i32 = main.random.nextInt(i32, &main.seed);
+
+			const x: i32 = blockIndex >> chunk.chunkShift2 & chunk.chunkMask;
+			const y: i32 = blockIndex >> chunk.chunkShift & chunk.chunkMask;
+			const z: i32 = blockIndex & chunk.chunkMask;
+
+			_chunk.mutex.lock();
+			const block = _chunk.getBlock(x, y, z);
+			_chunk.mutex.unlock();
+			if(block.tickEvent()) |event| {
+				event.tryRandomTick(block, _chunk, x, y, z);
+			}
+		}
+	}
+
+	fn tick(self: *ServerWorld) void {
+		ChunkManager.mutex.lock();
+		var iter = ChunkManager.entityChunkHashMap.valueIterator();
+		var currentChunks: main.ListUnmanaged(*EntityChunk) = .initCapacity(main.stackAllocator, iter.len);
+		defer currentChunks.deinit(main.stackAllocator);
+		while(iter.next()) |entityChunk| {
+			entityChunk.*.increaseRefCount();
+			currentChunks.append(main.stackAllocator, entityChunk.*);
+		}
+		ChunkManager.mutex.unlock();
+
+		// tick blocks
+		for(currentChunks.items) |entityChunk| {
+			defer entityChunk.decreaseRefCount();
+			const ch = entityChunk.getChunk() orelse continue;
+			self.tickBlocksInChunk(ch);
+		}
+	}
+
 	pub fn update(self: *ServerWorld) void { // MARK: update()
 		const newTime = std.time.milliTimestamp();
 		var deltaTime = @as(f32, @floatFromInt(newTime - self.lastUpdateTime))/1000.0;
@@ -943,6 +993,7 @@ pub const ServerWorld = struct { // MARK: ServerWorld
 				main.network.Protocols.genericUpdate.sendTime(user.conn, self);
 			}
 		}
+		self.tick();
 		// TODO: Entities
 
 		// Item Entities
