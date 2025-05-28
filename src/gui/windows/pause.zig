@@ -6,34 +6,99 @@ const Vec2f = main.vec.Vec2f;
 const gui = @import("../gui.zig");
 const GuiComponent = gui.GuiComponent;
 const GuiWindow = gui.GuiWindow;
-const Button = @import("../components/Button.zig");
-const VerticalList = @import("../components/VerticalList.zig");
 
 pub var window = GuiWindow{
-	.contentSize = Vec2f{128, 256},
+	.contentSize = .{100, 100},
+	.showTitleBar = false,
+	.closeIfMouseIsGrabbed = true,
+	.hasBackground = false,
 };
 
 const padding: f32 = 8;
 
+const Location = enum {
+	bottom,
+	top,
+};
+
+pub fn List(len: comptime_int, elems: [len]type, loc: Location) type {
+	return struct {
+		const Self = @This();
+
+		const elements = elems;
+		const location = loc;
+
+		pub fn getHeight() f32 {
+			var sum: f32 = 0;
+
+			inline for (elements) |elem| {
+				sum += elem.getHeight();
+			}
+
+			return sum;
+		}
+
+		pub fn render(x: f32, _: f32) void {
+			var newY: f32 = if(location == .bottom) main.Window.getWindowSize()[1] - Self.getHeight() else 0;
+			inline for (elements) |elem| {
+				elem.render(x, newY);
+				newY += elem.getHeight();
+			}
+		}
+	};
+}
+
+pub fn Button(name: []const u8) type {
+	return struct {
+		const text = name;
+
+		pub fn getHeight() f32 {
+			return 16;
+		}
+
+		pub fn render(x: f32, y: f32) void {
+			main.graphics.draw.text(text, x, y, 16, .left);
+		}
+	};
+}
+
+pub fn Break() type {
+	return struct {
+		pub fn getHeight() f32 {
+			return 16;
+		}
+
+		pub fn render(_: f32, _: f32) void {}
+	};
+}
+
+const PauseMenu = List(
+	5, [_]type{
+		Button("Back to Game"),
+		Button("Invite Players"),
+		Button("Settings"),
+		Break(),
+		Button("Save & Quit"),
+	},
+	.bottom
+);
+
 fn reorderHudCallbackFunction(_: usize) void {
 	gui.reorderWindows = !gui.reorderWindows;
 }
-pub fn onOpen() void {
-	const list = VerticalList.init(.{padding, 16 + padding}, 300, 16);
-	if(main.server.world != null) {
-		list.add(Button.initText(.{0, 0}, 128, "Invite Player", gui.openWindowCallback("invite")));
-	}
-	list.add(Button.initText(.{0, 0}, 128, "Settings", gui.openWindowCallback("settings")));
-	list.add(Button.initText(.{0, 0}, 128, "Reorder HUD", .{.callback = &reorderHudCallbackFunction}));
-	list.add(Button.initText(.{0, 0}, 128, "Exit World", .{.callback = &main.exitToMenu}));
-	list.finish(.center);
-	window.rootComponent = list.toComponent();
-	window.contentSize = window.rootComponent.?.pos() + window.rootComponent.?.size() + @as(Vec2f, @splat(padding));
-	gui.updateWindowPositions();
-}
+pub fn onOpen() void {}
 
 pub fn onClose() void {
 	if(window.rootComponent) |*comp| {
 		comp.deinit();
 	}
+}
+
+pub fn render() void {
+	main.graphics.draw.restoreTranslation(.{0, 0});
+
+	PauseMenu.render(0, 0);
+
+	main.graphics.draw.setColor(0xaf000000);
+	main.graphics.draw.rect(.{0, 0}, main.Window.getWindowSize());
 }
