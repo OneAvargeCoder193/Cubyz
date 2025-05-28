@@ -97,7 +97,7 @@ pub fn onClose() void {
 pub fn render() void {
 	main.graphics.draw.restoreTranslation(.{0, 0});
 
-	PauseMenu.render(0, 0);
+	PauseMenu.render(100, 0);
 
 	main.graphics.draw.setColor(0xaf000000);
 	main.graphics.draw.rect(.{0, 0}, main.Window.getWindowSize());
