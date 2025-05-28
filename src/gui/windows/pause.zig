@@ -14,74 +14,117 @@ pub var window = GuiWindow{
 	.hasBackground = false,
 };
 
-const padding: f32 = 8;
+const padding: f32 = 12;
 
 const Location = enum {
 	bottom,
 	top,
 };
 
-pub fn List(len: comptime_int, elems: [len]type, loc: Location) type {
-	return struct {
-		const Self = @This();
+const Section = enum {
+	choice,
+	settings,
+	data
+};
 
-		const elements = elems;
-		const location = loc;
+const Element = union (enum) {
+	list: struct {
+		elements: []*Element,
+		location: Location,
 
-		pub fn getHeight() f32 {
+		pub fn getHeight(self: @This()) f32 {
 			var sum: f32 = 0;
 
-			inline for (elements) |elem| {
+			for (self.elements) |elem| {
 				sum += elem.getHeight();
 			}
 
 			return sum;
 		}
 
-		pub fn render(x: f32, _: f32) void {
-			var newY: f32 = if(location == .bottom) main.Window.getWindowSize()[1] - Self.getHeight() else 0;
-			inline for (elements) |elem| {
-				elem.render(x, newY);
+		pub fn render(self: @This(), x: f32, y: f32, w: f32, h: f32) void {
+			var newY: f32 = if(self.location == .bottom) y + h - self.getHeight() - padding else y + padding;
+			for (self.elements) |elem| {
+				elem.render(x + padding, newY, w, h);
 				newY += elem.getHeight();
 			}
 		}
-	};
-}
-
-pub fn Button(name: []const u8) type {
-	return struct {
-		const text = name;
-
-		pub fn getHeight() f32 {
-			return 16;
-		}
-
-		pub fn render(x: f32, y: f32) void {
-			main.graphics.draw.text(text, x, y, 16, .left);
-		}
-	};
-}
-
-pub fn Break() type {
-	return struct {
-		pub fn getHeight() f32 {
-			return 16;
-		}
-
-		pub fn render(_: f32, _: f32) void {}
-	};
-}
-
-const PauseMenu = List(
-	5, [_]type{
-		Button("Back to Game"),
-		Button("Invite Players"),
-		Button("Settings"),
-		Break(),
-		Button("Save & Quit"),
 	},
-	.bottom
-);
+	button: struct {
+		text: []const u8,
+		
+		pub fn getHeight(_: @This()) f32 {
+			return 16;
+		}
+		
+		pub fn render(self: @This(), x: f32, y: f32, _: f32, _: f32) void {
+			main.graphics.draw.text(self.text, x, y, 16, .left);
+		}
+	},
+	empty: struct {
+		pub fn getHeight(_: @This()) f32 {
+			return 16;
+		}
+		
+		pub fn render(_: @This(), _: f32, _: f32, _: f32, _: f32) void {}
+	},
+
+	pub fn getHeight(self: Element) f32 {
+		switch(self) {
+			inline else => |val| {
+				return val.getHeight();
+			}
+		}
+	}
+
+	pub fn render(self: Element, x: f32, y: f32, w: f32, h: f32) void {
+		switch(self) {
+			inline else => |val| {
+				return val.render(x, y, w, h);
+			}
+		}
+	}
+};
+
+fn openSettings() void {
+
+}
+
+var back: Element = .{.button = .{
+	.text = "Back to Game",
+}};
+var invite: Element = .{.button = .{
+	.text = "Invite Players",
+}};
+var settings: Element = .{.button = .{
+	.text = "Settings",
+	.onPress = &openSettings,
+}};
+var empty: Element = .empty;
+var save: Element = .{.button = .{
+	.text = "Save & Quit",
+}};
+var pauseMenuList = [_]*Element{&back, &invite, &settings, &empty, &save}; 
+var pauseMenu: Element = .{.list = .{
+	.elements = &pauseMenuList,
+	.location = .bottom,
+}};
+
+var graphics: Element = .{.button = .{
+	.text = "Graphics",
+}};
+var sound: Element = .{.button = .{
+	.text = "Sound",
+}};
+var controls: Element = .{.button = .{
+	.text = "Controls",
+}};
+var accsesibility: Element = .{.button = .{
+	.text = "Accessibility",
+}};
+var changeName: Element = .{.button = .{
+	.text = "Change Name",
+}};
 
 fn reorderHudCallbackFunction(_: usize) void {
 	gui.reorderWindows = !gui.reorderWindows;
@@ -95,10 +138,15 @@ pub fn onClose() void {
 }
 
 pub fn render() void {
+	const size = main.Window.getWindowSize() / @as(Vec2f, @splat(main.graphics.draw.getScale()));
+
 	main.graphics.draw.restoreTranslation(.{0, 0});
 
-	PauseMenu.render(100, 0);
-
 	main.graphics.draw.setColor(0xaf000000);
-	main.graphics.draw.rect(.{0, 0}, main.Window.getWindowSize());
+	main.graphics.draw.rect(.{0, 0}, size);
+
+	main.graphics.draw.setColor(0xffffffff);
+	pauseMenu.render(0, 0, size[0] * 0.4, size[1]);
+	
+	main.graphics.draw.line(.{size[0] * 0.4, 0}, .{size[0] * 0.4, size[1]});
 }

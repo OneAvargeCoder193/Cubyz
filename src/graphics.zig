@@ -77,6 +77,10 @@ pub const draw = struct { // MARK: draw
 		scale = previousScale;
 	}
 
+	pub fn getScale() f32 {
+		return scale;
+	}
+
 	/// Returns the previous clip.
 	pub fn setClip(clipRect: Vec2f) ?Vec4i {
 		std.debug.assert(@reduce(.And, clipRect >= Vec2f{0, 0}));
