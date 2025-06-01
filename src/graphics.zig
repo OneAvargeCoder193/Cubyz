@@ -2586,9 +2586,19 @@ pub fn generateBlockTexture(blockType: u16) Texture {
 		frameBuffer.clear(.{0, 0, 0, 0});
 	}
 
-	const projMatrix = Mat4f.perspective(0.013, 1, 64, 256);
+	const width = @sqrt(2.0)/2.0*(2.0*@sqrt(10.0)+4.0*@sqrt(5.0))/(10.0*@sqrt(2.0));
+	const height = @sqrt(2.0)/2.0*(2.0*@sqrt(10.0)+4.0*@sqrt(5.0))/(10.0*@sqrt(2.0));
+	const projMatrix = Mat4f.orthographic(-width, height, -width, height, 64, 256);
 	const oldViewMatrix = main.game.camera.viewMatrix;
-	main.game.camera.viewMatrix = Mat4f.identity().mul(Mat4f.rotationX(std.math.pi/4.0)).mul(Mat4f.rotationZ(-5.0*std.math.pi/4.0));
+	// This matrix is the multiplication of a z rotation of -5*pi/4 and x rotation of arctan(0.5)
+	main.game.camera.viewMatrix = .{
+		.rows = [4]Vec4f{
+			Vec4f{-@sqrt(2.0)/2.0, -@sqrt(2.0)/2.0, 0, 0},
+			Vec4f{2.0*@sqrt(10.0)/10.0, -2.0*@sqrt(10.0)/10.0, -@sqrt(5.0)/5.0, 0},
+			Vec4f{@sqrt(10.0)/10.0, -@sqrt(10.0)/10.0, 2.0*@sqrt(5.0)/5.0, 0},
+			Vec4f{0, 0, 0, 1},
+		},
+	};
 	defer main.game.camera.viewMatrix = oldViewMatrix;
 	const uniforms = if(block.transparent()) &main.renderer.chunk_meshing.transparentUniforms else &main.renderer.chunk_meshing.uniforms;
 
@@ -2616,9 +2626,12 @@ pub fn generateBlockTexture(blockType: u16) Texture {
 
 	{
 		const i = 6; // Easily switch between the 8 rotations.
-		var x: f64 = -65.5 + 1.5;
-		var y: f64 = -65.5 + 1.5;
-		var z: f64 = -92.631 + 1.5;
+		// x -> 3cos(-5π/4)cos(arctan(0.5))
+		// y -> 3sin(-5π/4)cos(arctan(0.5))
+		// z -> 3sin(arctan(0.5))
+		var x: f64 = -6.0*@sqrt(10.0)/10.0 + 1.5;
+		var y: f64 = -6.0*@sqrt(10.0)/10.0 + 1.5;
+		var z: f64 = -3.0*@sqrt(5.0)/5.0 + 1.5;
 		if(i & 1 != 0) x = -x + 3;
 		if(i & 2 != 0) y = -y + 3;
 		if(i & 4 != 0) z = -z + 3;
