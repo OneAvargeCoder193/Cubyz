@@ -2030,7 +2030,7 @@ pub fn loadFromZon(self: Inventory, zon: ZonElement) void {
 pub fn saveBytes(self: Inventory, writer: *BinaryWriter) void {
 	writer.writeInt(u16, @intCast(self._items.len));
 	for(self._items) |stack| {
-		stack.writeBytes(writer);
+		stack.toBytes(writer);
 	}
 }
 
@@ -2040,6 +2040,6 @@ pub fn loadFromBytes(self: Inventory, reader: *BinaryReader) !void {
 		return error.InvalidInventorySize;
 	}
 	for(self._items) |*stack| {
-		stack.* = try ItemStack.readBytes(reader);
+		stack.* = try ItemStack.fromBytes(reader);
 	}
 }
