@@ -7,6 +7,8 @@ const Item = main.items.Item;
 const ItemStack = main.items.ItemStack;
 const Tool = main.items.Tool;
 const utils = main.utils;
+const BinaryReader = utils.BinaryReader;
+const BinaryWriter = utils.BinaryWriter;
 const NeverFailingAllocator = main.heap.NeverFailingAllocator;
 const vec = main.vec;
 const Vec3d = vec.Vec3d;
@@ -2022,5 +2024,22 @@ pub fn loadFromZon(self: Inventory, zon: ZonElement) void {
 			};
 			stack.amount = stackZon.get(u16, "amount", 0);
 		}
+	}
+}
+
+pub fn saveBytes(self: Inventory, writer: *BinaryWriter) void {
+	writer.writeInt(u16, @intCast(self._items.len));
+	for(self._items) |stack| {
+		stack.writeBytes(writer);
+	}
+}
+
+pub fn loadFromBytes(self: Inventory, reader: *BinaryReader) !void {
+	const capacity = try reader.readInt(u16);
+	if(capacity != self._items.len) {
+		return error.InvalidInventorySize;
+	}
+	for(self._items) |*stack| {
+		stack.* = try ItemStack.readBytes(reader);
 	}
 }
