@@ -2217,3 +2217,13 @@ pub fn panicWithMessage(comptime fmt: []const u8, args: anytype) noreturn {
 	const message = std.fmt.allocPrint(main.stackAllocator.allocator, fmt, args) catch unreachable;
 	@panic(message);
 }
+
+pub fn allFeatures(allocator: NeverFailingAllocator, comptime feature: type) [][]const u8 {
+	const features: main.ListUnmanaged([]const u8) = .init();
+
+	for (@typeInfo(feature).@"struct".decls) |decl| {
+		
+	}
+
+	return features.items;
+}

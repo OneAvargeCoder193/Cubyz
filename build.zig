@@ -80,8 +80,8 @@ fn linkLibraries(b: *std.Build, exe: *std.Build.Step.Compile, useLocalDeps: bool
 }
 
 pub fn makeModFeature(step: *std.Build.Step, name: []const u8) !void {
-	var featureList: std.ArrayListUnmanaged(u8) = .{};
-	defer featureList.deinit(step.owner.allocator);
+	var addonList: std.ArrayListUnmanaged(u8) = .{};
+	defer addonList.deinit(step.owner.allocator);
 
 	var modDir = try std.fs.cwd().openDir("mods", .{.iterate = true});
 	defer modDir.close();
@@ -96,28 +96,43 @@ pub fn makeModFeature(step: *std.Build.Step, name: []const u8) !void {
 		var featureDir = mod.openDir(name, .{.iterate = true}) catch continue;
 		defer featureDir.close();
 
+		try addonList.appendSlice(step.owner.allocator, step.owner.fmt(
+			\\pub const {s} = @import("{s}/{s}/_list.zig");
+			\\
+		,
+			.{
+				modEntry.name,
+				modEntry.name,
+				name,
+			},
+		));
+
+		var featureList: std.ArrayListUnmanaged(u8) = .{};
+		defer featureList.deinit(step.owner.allocator);
+
 		var featureIterator = featureDir.iterate();
 		while(try featureIterator.next()) |featureEntry| {
 			if(featureEntry.kind != .file) continue;
+			if(featureEntry.name.len == 0 or featureEntry.name[0] == '_') continue;
 			if(!std.mem.endsWith(u8, featureEntry.name, ".zig")) continue;
 
 			try featureList.appendSlice(step.owner.allocator, step.owner.fmt(
-				\\pub const @"{s}:{s}" = @import("{s}/{s}/{s}");
+				\\pub const {s} = @import("{s}");
 				\\
 			,
 				.{
-					modEntry.name,
 					featureEntry.name[0 .. featureEntry.name.len - 4],
-					modEntry.name,
-					name,
 					featureEntry.name,
 				},
 			));
 		}
+		
+		const file_path = step.owner.fmt("mods/{s}/{s}/_list.zig", .{modEntry.name, name});
+		try std.fs.cwd().writeFile(.{.data = featureList.items, .sub_path = file_path});
 	}
 
 	const file_path = step.owner.fmt("mods/{s}.zig", .{name});
-	try std.fs.cwd().writeFile(.{.data = featureList.items, .sub_path = file_path});
+	try std.fs.cwd().writeFile(.{.data = addonList.items, .sub_path = file_path});
 }
 
 pub fn addModFeatureModule(b: *std.Build, exe: *std.Build.Step.Compile, name: []const u8) !void {

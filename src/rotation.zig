@@ -12,7 +12,7 @@ const Vec3f = vec.Vec3f;
 const Mat4f = vec.Mat4f;
 const ZonElement = main.ZonElement;
 
-const list = @import("rotation");
+const rotations = @import("rotation");
 
 pub const RayIntersectionResult = struct {
 	distance: f64,

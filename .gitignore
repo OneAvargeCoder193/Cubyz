@@ -12,6 +12,7 @@ test.png
 
 /mods/*
 !/mods/cubyz
+/mods/cubyz/**/_list.zig
 
 /assets/*
 !/assets/cubyz
