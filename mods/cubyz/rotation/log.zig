@@ -22,6 +22,15 @@ var modelIndex: ?ModelIndex = null;
 
 const LogData = branch.BranchData;
 
+pub const naturalStandard: u16 = blk: {
+	var data = LogData.init(0);
+
+	data.setConnection(.dirUp, true);
+	data.setConnection(.dirDown, true);
+
+	break :blk @intCast(data.enabledConnections);
+};
+
 pub fn init() void {}
 
 pub fn deinit() void {}

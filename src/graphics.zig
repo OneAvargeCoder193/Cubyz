@@ -2604,7 +2604,8 @@ const block_texture = struct { // MARK: block_texture
 };
 
 pub fn generateBlockTexture(blockType: u16) Texture {
-	const block = main.blocks.Block{.typ = blockType, .data = 0}; // TODO: Use natural standard data.
+	var block = main.blocks.Block{.typ = blockType, .data = 0};
+	block.data = block.mode().naturalStandard;
 	const textureSize = block_texture.textureSize;
 	c.glViewport(0, 0, textureSize, textureSize);
 
