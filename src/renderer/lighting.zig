@@ -112,6 +112,20 @@ pub const ChannelChunk = struct {
 		}
 	}
 
+	fn calculateLight(result: *[3]u8, rate: u8, voxelSize: u8) void {
+		_ = rate;
+		const strengthMap = comptime blk: {
+			var map: [main.settings.highestSupportedLod + 1]u16 = undefined;
+			for (0..map.len) |i| {
+				map[i] = @intFromFloat(std.math.pow(f32, 0.85, @floatFromInt(1 << i))*32768);
+			}
+			break :blk map;
+		};
+		result[0] = @intCast(@as(u24, @intCast(result[0]))*strengthMap[@ctz(voxelSize)]>>15);
+		result[1] = @intCast(@as(u24, @intCast(result[1]))*strengthMap[@ctz(voxelSize)]>>15);
+		result[2] = @intCast(@as(u24, @intCast(result[2]))*strengthMap[@ctz(voxelSize)]>>15);
+	}
+
 	fn propagateDirect(self: *ChannelChunk, lightQueue: *main.utils.CircularBufferQueue(Entry), lightRefreshList: *main.List(chunk.ChunkPosition)) void {
 		var neighborLists: [6]main.ListUnmanaged(Entry) = @splat(.{});
 		defer {
@@ -138,9 +152,7 @@ pub const ChannelChunk = struct {
 				const nz = entry.z + neighbor.relZ();
 				var result: Entry = .{.x = @intCast(nx & chunk.chunkMask), .y = @intCast(ny & chunk.chunkMask), .z = @intCast(nz & chunk.chunkMask), .value = newValue, .sourceDir = neighbor.reverse().toInt(), .activeValue = 0b111};
 				if(!self.isSun or neighbor != .dirDown or result.value[0] != 255 or result.value[1] != 255 or result.value[2] != 255) {
-					result.value[0] -|= 8*|@as(u8, @intCast(self.ch.pos.voxelSize));
-					result.value[1] -|= 8*|@as(u8, @intCast(self.ch.pos.voxelSize));
-					result.value[2] -|= 8*|@as(u8, @intCast(self.ch.pos.voxelSize));
+					calculateLight(&result.value, 8, @intCast(self.ch.pos.voxelSize));
 				}
 				calculateOutgoingOcclusion(&result.value, self.ch.data.getValue(index), self.ch.pos.voxelSize, neighbor);
 				if(result.value[0] == 0 and result.value[1] == 0 and result.value[2] == 0) continue;
@@ -231,9 +243,7 @@ pub const ChannelChunk = struct {
 				const nz = entry.z + neighbor.relZ();
 				var result: Entry = .{.x = @intCast(nx & chunk.chunkMask), .y = @intCast(ny & chunk.chunkMask), .z = @intCast(nz & chunk.chunkMask), .value = entry.value, .sourceDir = neighbor.reverse().toInt(), .activeValue = @bitCast(activeValue)};
 				if(!self.isSun or neighbor != .dirDown or result.value[0] != 255 or result.value[1] != 255 or result.value[2] != 255) {
-					result.value[0] -|= 8*|@as(u8, @intCast(self.ch.pos.voxelSize));
-					result.value[1] -|= 8*|@as(u8, @intCast(self.ch.pos.voxelSize));
-					result.value[2] -|= 8*|@as(u8, @intCast(self.ch.pos.voxelSize));
+					calculateLight(&result.value, 8, @intCast(self.ch.pos.voxelSize));
 				}
 				calculateOutgoingOcclusion(&result.value, self.ch.data.getValue(index), self.ch.pos.voxelSize, neighbor);
 				if(nx < 0 or nx >= chunk.chunkSize or ny < 0 or ny >= chunk.chunkSize or nz < 0 or nz >= chunk.chunkSize) {
@@ -325,9 +335,7 @@ pub const ChannelChunk = struct {
 						const neighborIndex = chunk.getIndex(otherX, otherY, otherZ);
 						var value: [3]u8 = neighborLightChunk.data.getValue(neighborIndex).toArray();
 						if(!self.isSun or neighbor != .dirUp or value[0] != 255 or value[1] != 255 or value[2] != 255) {
-							value[0] -|= 8*|@as(u8, @intCast(self.ch.pos.voxelSize));
-							value[1] -|= 8*|@as(u8, @intCast(self.ch.pos.voxelSize));
-							value[2] -|= 8*|@as(u8, @intCast(self.ch.pos.voxelSize));
+							calculateLight(&value, 8, @intCast(self.ch.pos.voxelSize));
 						}
 						calculateOutgoingOcclusion(&value, self.ch.data.getValue(neighborIndex), self.ch.pos.voxelSize, neighbor);
 						if(value[0] == 0 and value[1] == 0 and value[2] == 0) continue;
