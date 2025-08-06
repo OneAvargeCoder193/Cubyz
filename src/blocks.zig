@@ -452,6 +452,19 @@ pub const TickFunctions = struct {
 
 		_ = main.server.world.?.cmpxchgBlock(wx, wy, wz, block, cobblestone);
 	}
+
+	pub fn grow(block: Block, _chunk: *chunk.ServerChunk, x: i32, y: i32, z: i32) void {
+		const wx = _chunk.super.pos.wx + x;
+		const wy = _chunk.super.pos.wy + y;
+		const wz = _chunk.super.pos.wz + z;
+
+		var newBlock = block;
+		if (newBlock.data < 2) {
+			newBlock.data += 1;
+		}
+
+		_ = main.server.world.?.cmpxchgBlock(wx, wy, wz, block, newBlock);
+	}
 };
 
 pub const TickEvent = struct {

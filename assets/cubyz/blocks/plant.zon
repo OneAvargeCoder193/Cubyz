@@ -1,0 +1,23 @@
+.{
+	.tags = .{.cuttable},
+	.blockHealth = 0.2,
+	.drops = .{
+		.{.items = .{.auto}},
+	},
+	.degradable = true,
+	.viewThrough = true,
+	.absorbedLight = 0x000000,
+	.collide = false,
+	.model = "cubyz:cross",
+	.rotation = "cubyz:state",
+	.texture0 = "cubyz:test_plant/0",
+	.texture1 = "cubyz:test_plant/1",
+	.texture2 = "cubyz:test_plant/2",
+	.tickEvent = .{
+		.name = .grow,
+	},
+	.item = .{
+		.texture = "grass.png",
+	},
+	.lodReplacement = "cubyz:air",
+}
