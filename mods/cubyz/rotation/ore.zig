@@ -37,6 +37,13 @@ pub fn createBlockModel(_: Block, _: *u16, zon: ZonElement) ModelIndex {
 	const len = quadList.items.len;
 	for(0..len) |i| {
 		quadList.append(quadList.items[i]);
+		
+		for(0..4) |j| {
+			for(0..3) |k| {
+				quadList.items[i].corners[j][k] = 1.002 * quadList.items[i].corners[j][k] - 0.001;
+			}
+		}
+
 		quadList.items[i + len].textureSlot += 16;
 		quadList.items[i].opaqueInLod = 2;
 	}
@@ -50,7 +57,6 @@ pub fn generateData(_: *main.game.World, _: Vec3i, _: Vec3f, _: Vec3f, _: Vec3i,
 }
 
 pub fn modifyBlock(block: *Block, newBlockType: u16) bool {
-	if(block.transparent() or block.viewThrough()) return false;
 	if(!main.blocks.meshes.modelIndexStart(block.*).model().allNeighborsOccluded) return false;
 	if(block.data != 0) return false;
 	block.data = block.typ;
@@ -60,7 +66,6 @@ pub fn modifyBlock(block: *Block, newBlockType: u16) bool {
 
 pub fn canBeChangedInto(oldBlock: Block, newBlock: Block, _: main.items.ItemStack, shouldDropSourceBlockOnSuccess: *bool) RotationMode.CanBeChangedInto {
 	if(oldBlock == newBlock) return .no;
-	if(oldBlock.transparent() or oldBlock.viewThrough()) return .no;
 	if(!main.blocks.meshes.modelIndexStart(oldBlock).model().allNeighborsOccluded) return .no;
 	if(oldBlock.data != 0) return .no;
 	if(newBlock.data != oldBlock.typ) return .no;

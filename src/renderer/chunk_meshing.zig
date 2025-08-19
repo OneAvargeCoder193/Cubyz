@@ -630,7 +630,7 @@ pub const PrimitiveMesh = struct { // MARK: PrimitiveMesh
 pub const ChunkMesh = struct { // MARK: ChunkMesh
 	const SortingData = struct {
 		face: FaceData,
-		distance: u32,
+		distance: f32,
 		isBackFace: bool,
 		shouldBeCulled: bool,
 
@@ -643,12 +643,21 @@ pub const ChunkMesh = struct { // MARK: ChunkMesh
 			const dz = z + chunkDz;
 			self.isBackFace = self.face.position.isBackFace;
 			const quadIndex = self.face.blockAndQuad.quadIndex;
+			const quadInfo = quadIndex.quadInfo();
 			const normalVector: Vec3f = quadIndex.quadInfo().normal;
+			var corner0 = quadInfo.cornerVec(0);
+			var corner1 = quadInfo.cornerVec(1);
+			var corner2 = quadInfo.cornerVec(2);
+			var corner3 = quadInfo.cornerVec(3);
+			if(models.Model.getFaceNeighbor(quadInfo)) |_| {
+				corner0 -= normalVector;
+				corner1 -= normalVector;
+				corner2 -= normalVector;
+				corner3 -= normalVector;
+			}
+
 			self.shouldBeCulled = vec.dot(normalVector, @floatFromInt(Vec3i{dx, dy, dz})) > 0; // TODO: Adjust for arbitrary voxel models.
-			const fullDx = dx - @as(i32, @intFromFloat(normalVector[0])); // TODO: This calculation should only be done for border faces.
-			const fullDy = dy - @as(i32, @intFromFloat(normalVector[1]));
-			const fullDz = dz - @as(i32, @intFromFloat(normalVector[2]));
-			self.distance = @abs(fullDx) + @abs(fullDy) + @abs(fullDz);
+			self.distance = vec.lengthSquare(corner0*corner0 + corner1*corner1 + corner2*corner2 + corner3*corner3);
 		}
 	};
 	pos: chunk.ChunkPosition,
@@ -1637,37 +1646,44 @@ pub const ChunkMesh = struct { // MARK: ChunkMesh
 				self.culledSortingCount = @intCast(culledStart);
 			}
 
-			// Sort it using bucket sort:
-			var buckets: [34*3]u32 = undefined;
-			@memset(&buckets, 0);
-			for(self.blockBreakingFacesSortingData) |val| {
-				buckets[34*3 - 1 - val.distance] += 1;
-			}
-			for(self.currentSorting[0..self.culledSortingCount]) |val| {
-				buckets[34*3 - 1 - val.distance] += 1;
-			}
-			var prefixSum: u32 = 0;
-			for(&buckets) |*val| {
-				const copy = val.*;
-				val.* = prefixSum;
-				prefixSum += copy;
-			}
-			// Move it over into a new buffer:
-			for(0..backFaceStart) |i| {
-				const bucket = 34*3 - 1 - self.currentSorting[i].distance;
-				self.sortingOutputBuffer[buckets[bucket]] = self.currentSorting[i].face;
-				buckets[bucket] += 1;
-			}
-			// Block breaking faces should be drawn after front faces, but before the corresponding backfaces.
-			for(self.blockBreakingFacesSortingData) |val| {
-				const bucket = 34*3 - 1 - val.distance;
-				self.sortingOutputBuffer[buckets[bucket]] = val.face;
-				buckets[bucket] += 1;
-			}
-			for(backFaceStart..self.culledSortingCount) |i| {
-				const bucket = 34*3 - 1 - self.currentSorting[i].distance;
-				self.sortingOutputBuffer[buckets[bucket]] = self.currentSorting[i].face;
-				buckets[bucket] += 1;
+			// Sort it using radix sort:
+
+			var data = main.stackAllocator.alloc(SortingData, self.culledSortingCount - 1 + self.blockBreakingFacesSortingData.len);
+			defer main.stackAllocator.free(data);
+			@memcpy(data[0..self.blockBreakingFacesSortingData.len], self.blockBreakingFacesSortingData);
+			@memcpy(data[self.blockBreakingFacesSortingData.len..], self.currentSorting[0..self.culledSortingCount]);
+			var buckets: [256]u32 = undefined;
+			for(0..4) |byteIndex| {
+				const bitIndex: u5 = @intCast(byteIndex * 8);
+				@memset(&buckets, 0);
+				for(data) |val| {
+					const byte: u8 = @truncate(@as(u32, @bitCast(val.distance)) >> bitIndex);
+					buckets[255 - byte] += 1;
+				}
+				var prefixSum: u32 = 0;
+				for(&buckets) |*val| {
+					const copy = val.*;
+					val.* = prefixSum;
+					prefixSum += copy;
+				}
+				for(0..backFaceStart) |i| {
+					const byte: u8 = @truncate(@as(u32, @bitCast(self.currentSorting[i].distance)) >> bitIndex);
+					const bucket = 255 - byte;
+					self.sortingOutputBuffer[buckets[bucket]] = self.currentSorting[i].face;
+					buckets[bucket] += 1;
+				}
+				for(self.blockBreakingFacesSortingData) |val| {
+					const byte: u8 = @truncate(@as(u32, @bitCast(val.distance)) >> bitIndex);
+					const bucket = 255 - byte;
+					self.sortingOutputBuffer[buckets[bucket]] = val.face;
+					buckets[bucket] += 1;
+				}
+				for(backFaceStart..self.culledSortingCount) |i| {
+					const byte: u8 = @truncate(@as(u32, @bitCast(self.currentSorting[i].distance)) >> bitIndex);
+					const bucket = 255 - byte;
+					self.sortingOutputBuffer[buckets[bucket]] = self.currentSorting[i].face;
+					buckets[bucket] += 1;
+				}
 			}
 			self.culledSortingCount += @intCast(self.blockBreakingFaces.items.len);
 			// Upload:

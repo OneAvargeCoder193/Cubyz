@@ -1,0 +1,11 @@
+.{
+	.tags = .{.mineable},
+	.blockHealth = 16,
+	.blockResistance = 1,
+	.drops = .{.auto},
+	.transparent = true,
+	.hasBackFace = true,
+	.rotation = "cubyz:ore",
+	.model = "cubyz:cube",
+	.texture = "cubyz:iron_frame",
+}

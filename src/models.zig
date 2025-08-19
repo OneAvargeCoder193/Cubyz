@@ -99,7 +99,7 @@ pub const Model = struct {
 	hasNeighborFacingQuads: bool,
 	collision: []Box,
 
-	fn getFaceNeighbor(quad: *const QuadInfo) ?chunk.Neighbor {
+	pub fn getFaceNeighbor(quad: *const QuadInfo) ?chunk.Neighbor {
 		var allZero: @Vector(3, bool) = .{true, true, true};
 		var allOne: @Vector(3, bool) = .{true, true, true};
 		for(quad.corners) |corner| {
