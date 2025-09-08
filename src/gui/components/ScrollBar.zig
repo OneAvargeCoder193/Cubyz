@@ -20,11 +20,17 @@ const fontSize: f32 = 16;
 
 var texture: Texture = undefined;
 
+const ScrollAxis = enum {
+	vertical,
+	horizontal
+};
+
 pos: Vec2f,
 size: Vec2f,
 currentState: f32,
 button: *Button,
 mouseAnchor: f32 = undefined,
+axis: ScrollAxis = undefined,
 
 pub fn __init() void {
 	texture = Texture.initFromFile("assets/cubyz/ui/scrollbar.png");
@@ -34,7 +40,7 @@ pub fn __deinit() void {
 	texture.deinit();
 }
 
-pub fn init(pos: Vec2f, width: f32, height: f32, initialState: f32) *ScrollBar {
+pub fn init(pos: Vec2f, width: f32, height: f32, initialState: f32, axis: ScrollAxis) *ScrollBar {
 	const button = Button.initText(.{0, 0}, undefined, "", .{});
 	const self = main.globalAllocator.create(ScrollBar);
 	self.* = ScrollBar{

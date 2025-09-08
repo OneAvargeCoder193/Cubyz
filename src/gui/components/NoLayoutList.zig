@@ -19,22 +19,28 @@ const border: f32 = 3;
 pos: Vec2f,
 size: Vec2f,
 children: main.List(GuiComponent),
+positions: main.List(Vec2f),
 padding: f32,
 maxHeight: f32,
 childrenHeight: f32 = 0,
-scrollBar: *ScrollBar,
-scrollBarEnabled: bool = false,
+verticalScrollBar: *ScrollBar,
+verticalScrollBarEnabled: bool = false,
+horizontalScrollBar: *ScrollBar,
+horizontalScrollBarEnabled: bool = false,
 
 pub fn init(pos: Vec2f, maxHeight: f32, padding: f32) *VerticalList {
-	const scrollBar = ScrollBar.init(undefined, scrollBarWidth, maxHeight - 2*border, 0, .vertical);
+	const verticalScrollBar = ScrollBar.init(undefined, scrollBarWidth, maxHeight - 2*border, 0, .vertical);
+	const horizontalScrollBar = ScrollBar.init(undefined, scrollBarWidth, maxHeight - 2*border, 0, .horizontal);
 	const self = main.globalAllocator.create(VerticalList);
 	self.* = VerticalList{
 		.children = .init(main.globalAllocator),
+		.positions = .init(main.globalAllocator),
 		.pos = pos,
 		.size = .{0, 0},
 		.padding = padding,
 		.maxHeight = maxHeight,
-		.scrollBar = scrollBar,
+		.verticalScrollBar = verticalScrollBar,
+		.horizontalScrollBar = horizontalScrollBar,
 	};
 	return self;
 }

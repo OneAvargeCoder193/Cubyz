@@ -49,7 +49,7 @@ const OptionalCallbacks = struct {
 };
 
 pub fn init(pos: Vec2f, maxWidth: f32, maxHeight: f32, text: []const u8, onNewline: gui.Callback, optional: OptionalCallbacks) *TextInput {
-	const scrollBar = ScrollBar.init(undefined, scrollBarWidth, maxHeight - 2*border, 0);
+	const scrollBar = ScrollBar.init(undefined, scrollBarWidth, maxHeight - 2*border, 0, .vertical);
 	const self = main.globalAllocator.create(TextInput);
 	self.* = TextInput{
 		.pos = pos,
