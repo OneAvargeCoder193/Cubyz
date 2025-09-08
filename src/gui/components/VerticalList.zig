@@ -114,8 +114,8 @@ pub fn updateHovered(self: *VerticalList, mousePosition: Vec2f) void {
 	}
 	if(self.scrollBarEnabled) {
 		const diff = self.childrenHeight - self.maxHeight;
-		self.scrollBar.scroll(-main.Window.scrollOffset*32/diff);
-		main.Window.scrollOffset = 0;
+		self.scrollBar.scroll(-main.Window.verticalScrollOffset*32/diff);
+		main.Window.verticalScrollOffset = 0;
 		if(GuiComponent.contains(self.scrollBar.pos, self.scrollBar.size, mousePosition - self.pos)) {
 			self.scrollBar.updateHovered(mousePosition - self.pos);
 		}

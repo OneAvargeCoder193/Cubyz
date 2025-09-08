@@ -3,6 +3,7 @@ const std = @import("std");
 pub const gui = @import("gui/gui.zig");
 pub const server = @import("server/server.zig");
 
+pub const achievements = @import("achievements.zig");
 pub const audio = @import("audio.zig");
 pub const assets = @import("assets.zig");
 pub const block_entity = @import("block_entity.zig");
@@ -386,6 +387,8 @@ pub const KeyBoard = struct { // MARK: KeyBoard
 		// gamepad gui.
 		.{.name = "scrollUp", .gamepadAxis = .{.axis = c.GLFW_GAMEPAD_AXIS_RIGHT_Y, .positive = false}},
 		.{.name = "scrollDown", .gamepadAxis = .{.axis = c.GLFW_GAMEPAD_AXIS_RIGHT_Y, .positive = true}},
+		.{.name = "scrollLeft", .gamepadAxis = .{.axis = c.GLFW_GAMEPAD_AXIS_LEFT_X, .positive = false}},
+		.{.name = "scrollRight", .gamepadAxis = .{.axis = c.GLFW_GAMEPAD_AXIS_RIGHT_X, .positive = true}},
 		.{.name = "uiUp", .gamepadAxis = .{.axis = c.GLFW_GAMEPAD_AXIS_LEFT_Y, .positive = false}},
 		.{.name = "uiLeft", .gamepadAxis = .{.axis = c.GLFW_GAMEPAD_AXIS_LEFT_X, .positive = false}},
 		.{.name = "uiDown", .gamepadAxis = .{.axis = c.GLFW_GAMEPAD_AXIS_LEFT_Y, .positive = true}},
@@ -646,6 +649,9 @@ pub fn main() void { // MARK: main()
 
 	particles.ParticleManager.init();
 	defer particles.ParticleManager.deinit();
+
+	achievements.init();
+	defer achievements.deinit();
 
 	if(settings.playerName.len == 0) {
 		gui.openWindow("change_name");

@@ -6,6 +6,7 @@ const migrations_zig = @import("migrations.zig");
 const blueprints_zig = @import("blueprint.zig");
 const Blueprint = blueprints_zig.Blueprint;
 const particles_zig = @import("particles.zig");
+const achievements_zig = @import("achievements.zig");
 const ZonElement = @import("zon.zig").ZonElement;
 const main = @import("main");
 const biomes_zig = main.server.terrain.biomes;
@@ -36,6 +37,7 @@ pub const Assets = struct {
 	structureBuildingBlocks: ZonHashMap,
 	blueprints: BytesHashMap,
 	particles: ZonHashMap,
+	achievements: ZonHashMap,
 
 	fn init() Assets {
 		return .{
@@ -51,6 +53,7 @@ pub const Assets = struct {
 			.structureBuildingBlocks = .{},
 			.blueprints = .{},
 			.particles = .{},
+			.achievements = .{},
 		};
 	}
 	fn deinit(self: *Assets, allocator: NeverFailingAllocator) void {
@@ -66,6 +69,7 @@ pub const Assets = struct {
 		self.structureBuildingBlocks.deinit(allocator.allocator);
 		self.blueprints.deinit(allocator.allocator);
 		self.particles.deinit(allocator.allocator);
+		self.achievements.deinit(allocator.allocator);
 	}
 	fn clone(self: Assets, allocator: NeverFailingAllocator) Assets {
 		return .{
@@ -81,6 +85,7 @@ pub const Assets = struct {
 			.structureBuildingBlocks = self.structureBuildingBlocks.clone(allocator.allocator) catch unreachable,
 			.blueprints = self.blueprints.clone(allocator.allocator) catch unreachable,
 			.particles = self.particles.clone(allocator.allocator) catch unreachable,
+			.achievements = self.achievements.clone(allocator.allocator) catch unreachable,
 		};
 	}
 	fn read(self: *Assets, allocator: NeverFailingAllocator, assetDir: main.files.Dir, assetPath: []const u8) void {
@@ -98,12 +103,13 @@ pub const Assets = struct {
 			addon.readAllBlueprints(allocator, "sbb", &self.blueprints);
 			addon.readAllModels(allocator, &self.models);
 			addon.readAllZon(allocator, "particles", true, &self.particles, null);
+			addon.readAllZon(allocator, "achievements", false, &self.achievements, null);
 		}
 	}
 	fn log(self: *Assets, typ: enum {common, world}) void {
 		std.log.info(
-			"Finished {s} assets reading with {} blocks ({} migrations), {} items ({} migrations), {} tools, {} biomes ({} migrations), {} recipes, {} structure building blocks, {} blueprints and {} particles",
-			.{@tagName(typ), self.blocks.count(), self.blockMigrations.count(), self.items.count(), self.itemMigrations.count(), self.tools.count(), self.biomes.count(), self.biomeMigrations.count(), self.recipes.count(), self.structureBuildingBlocks.count(), self.blueprints.count(), self.particles.count()},
+			"Finished {s} assets reading with {} blocks ({} migrations), {} items ({} migrations), {} tools, {} biomes ({} migrations), {} recipes, {} structure building blocks, {} blueprints, {} particles, and {} achievements",
+			.{@tagName(typ), self.blocks.count(), self.blockMigrations.count(), self.items.count(), self.itemMigrations.count(), self.tools.count(), self.biomes.count(), self.biomeMigrations.count(), self.recipes.count(), self.structureBuildingBlocks.count(), self.blueprints.count(), self.particles.count(), self.achievements.count()},
 		);
 	}
 
@@ -599,6 +605,13 @@ pub fn loadWorldAssets(assetFolder: []const u8, blockPalette: *Palette, itemPale
 	// block drops:
 	blocks_zig.finishBlocks(worldAssets.blocks);
 
+	iterator = worldAssets.achievements.iterator();
+	while(iterator.next()) |entry| {
+		_ = achievements_zig.register(assetFolder, entry.key_ptr.*, entry.value_ptr.*);
+	}
+
+	achievements_zig.finishAchievements(worldAssets.achievements);
+
 	iterator = worldAssets.recipes.iterator();
 	while(iterator.next()) |entry| {
 		registerRecipesFromZon(entry.value_ptr.*);
@@ -663,6 +676,7 @@ pub fn unloadAssets() void { // MARK: unloadAssets()
 	main.models.reset();
 	main.rotation.reset();
 	main.Tag.resetTags();
+	achievements_zig.reset();
 
 	// Remove paths from asset hot reloading:
 	var dir = main.files.cwd().openIterableDir("assets") catch |err| {
