@@ -69,14 +69,14 @@ pub fn onOpen() void {
 		});
 	}
 
-	const list = VerticalList.init(.{padding, 16 + padding}, 256, 16);
+	const list = VerticalList.init(.{padding, 16 + padding}, 256, 8);
 	
 	for(achievementList.items) |achievementData| {
 		const horizontalList = HorizontalList.init();
-		horizontalList.add(Icon.init(.{0, 0}, .{48, 48}, achievementData.icon, true));
-		horizontalList.add(Label.init(.{0, 0}, 200, achievementData.name, .left));
-		horizontalList.finish(.{0, 0}, .center);
-		list.add(horizontalList);
+		horizontalList.add(Icon.init(.{0, 0}, .{32, 32}, achievementData.icon, true));
+		horizontalList.add(Label.init(.{0, 0}, 150, achievementData.name, .left));
+		horizontalList.finish(.{0, 0}, .left);
+		list.add(Button.initComponent(.{0, 0}, horizontalList, .{.callback = null}));
 	}
 	list.finish(.center);
 

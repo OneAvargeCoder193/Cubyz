@@ -107,6 +107,23 @@ pub fn initIcon(pos: Vec2f, iconSize: Vec2f, iconTexture: Texture, hasShadow: bo
 	return self;
 }
 
+pub fn initComponent(pos: Vec2f, _child: anytype, onAction: gui.Callback) *Button {
+	var child: GuiComponent = undefined;
+	if(@TypeOf(_child) == GuiComponent) {
+		child = _child;
+	} else {
+		child = _child.toComponent();
+	}
+	const self = main.globalAllocator.create(Button);
+	self.* = Button{
+		.pos = pos,
+		.size = child.size() + @as(Vec2f, @splat(3*border)),
+		.onAction = onAction,
+		.child = child,
+	};
+	return self;
+}
+
 pub fn deinit(self: *const Button) void {
 	self.child.deinit();
 	main.globalAllocator.destroy(self);
