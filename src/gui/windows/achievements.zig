@@ -56,7 +56,6 @@ fn readTexture(textureId: []const u8) !graphics.Texture {
 	};
 	file.close();
 	return Texture.initFromFile(path);
-	
 }
 
 pub fn onOpen() void {
