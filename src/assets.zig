@@ -610,8 +610,6 @@ pub fn loadWorldAssets(assetFolder: []const u8, blockPalette: *Palette, itemPale
 		_ = achievements_zig.register(assetFolder, entry.key_ptr.*, entry.value_ptr.*);
 	}
 
-	achievements_zig.finishAchievements(worldAssets.achievements);
-
 	iterator = worldAssets.recipes.iterator();
 	while(iterator.next()) |entry| {
 		registerRecipesFromZon(entry.value_ptr.*);

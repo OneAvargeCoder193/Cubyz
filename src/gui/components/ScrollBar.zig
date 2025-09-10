@@ -18,8 +18,7 @@ const ScrollBar = @This();
 
 const fontSize: f32 = 16;
 
-var textureHorizontal: Texture = undefined;
-var textureVertical: Texture = undefined;
+var texture: Texture = undefined;
 
 pos: Vec2f,
 size: Vec2f,
@@ -28,13 +27,11 @@ button: *Button,
 mouseAnchor: f32 = undefined,
 
 pub fn __init() void {
-	textureHorizontal = Texture.initFromFile("assets/cubyz/ui/scrollbar_horizontal.png");
-	textureVertical = Texture.initFromFile("assets/cubyz/ui/scrollbar_vertical.png");
+	texture = Texture.initFromFile("assets/cubyz/ui/scrollbar.png");
 }
 
 pub fn __deinit() void {
-	textureHorizontal.deinit();
-	textureVertical.deinit();
+	texture.deinit();
 }
 
 pub fn init(pos: Vec2f, width: f32, height: f32, initialState: f32) *ScrollBar {
@@ -96,11 +93,7 @@ pub fn mainButtonReleased(self: *ScrollBar, mousePosition: Vec2f) void {
 }
 
 pub fn render(self: *ScrollBar, mousePosition: Vec2f) void {
-	if(self.axis == .horizontal) {
-		textureHorizontal.bindTo(0);
-	} else {
-		textureVertical.bindTo(0);
-	}
+	texture.bindTo(0);
 	Button.pipeline.bind(draw.getScissor());
 	draw.setColor(0xff000000);
 	draw.customShadedRect(Button.buttonUniforms, self.pos, self.size);

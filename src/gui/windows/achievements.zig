@@ -4,6 +4,8 @@ const main = @import("main");
 const Vec2f = main.vec.Vec2f;
 const graphics = main.graphics;
 const c = graphics.c;
+const Texture = graphics.Texture;
+const Image = graphics.Image;
 const ZonElement = main.ZonElement;
 const achievements = main.achievements;
 const Achievement = achievements.Achievement;
@@ -13,7 +15,8 @@ const GuiComponent = gui.GuiComponent;
 const GuiWindow = gui.GuiWindow;
 const Icon = @import("../components/Icon.zig");
 const Button = @import("../components/Button.zig");
-const NoLayoutList = @import("../components/NoLayoutList.zig");
+const Label = @import("../components/Label.zig");
+const VerticalList = @import("../components/VerticalList.zig");
 const HorizontalList = @import("../components/HorizontalList.zig");
 
 pub var window: GuiWindow = GuiWindow{
@@ -21,75 +24,61 @@ pub var window: GuiWindow = GuiWindow{
 	.closeIfMouseIsGrabbed = true,
 };
 
-pub const AchievementNode = struct {
-	achievement: Achievement,
-	depth: u32 = 0,
-	yOffset: f32 = 0,
-	children: main.List(usize),
+const AchievementData = struct {
+	icon: graphics.Texture,
+	name: []u8,
+
+	pub fn deinit(self: AchievementData) void {
+		self.icon.deinit();
+	}
 };
-
-var achievementNodes: []AchievementNode = undefined;
-var width: u31 = undefined;
-var height: u31 = undefined;
-
-fn generateNodes() void {
-	achievementNodes = main.globalAllocator.alloc(AchievementNode, achievements.achievementCount());
-	for(0..achievements.achievementCount()) |i| {
-		achievementNodes[i] = .{
-			.achievement = @enumFromInt(i),
-			.children = .init(main.globalAllocator),
-		};
-	}
-	for(0..achievements.achievementCount()) |i| {
-		if(@as(Achievement, @enumFromInt(i)).parent()) |parent| {
-			achievementNodes[@intFromEnum(parent)].children.append(i);
-		}
-	}
-}
-
-fn assignPositions(nodeIndex: usize, depth: u32, yOffset: f32) f32 {
-	const node = &achievementNodes[nodeIndex];
-	node.depth = depth;
-	if(node.children.items.len == 0) {
-		node.yOffset = yOffset;
-		return 1;
-	}
-	var totalHeight: f32 = 0;
-	for(node.children.items) |childIndex| {
-		totalHeight += assignPositions(childIndex, depth + 1, yOffset + totalHeight);
-	}
-	const firstY = achievementNodes[node.children.items[0]].yOffset;
-	const lastY = achievementNodes[node.children.items[node.children.items.len - 1]].yOffset;
-	node.yOffset = (firstY + lastY) / 2.0;
-	return totalHeight;
-}
 
 const padding: f32 = 8;
 
-var list: *NoLayoutList = undefined;
+var achievementList: main.List(AchievementData) = undefined;
+
+fn readTexture(textureId: []const u8) !graphics.Texture {
+	var splitter = std.mem.splitScalar(u8, textureId, ':');
+	const mod = splitter.first();
+	const id = splitter.rest();
+	var path = try std.fmt.allocPrint(main.stackAllocator.allocator, "serverAssets/{s}/achievements/icons/{s}.png", .{mod, id});
+	defer main.stackAllocator.free(path);
+	const file = main.files.cwd().openFile(path) catch |err| blk: {
+		if(err != error.FileNotFound) {
+			std.log.err("Could not open file {s}: {s}", .{path, @errorName(err)});
+		}
+		main.stackAllocator.free(path);
+		path = try std.fmt.allocPrint(main.stackAllocator.allocator, "assets/{s}/achievements/icons/{s}.png", .{mod, id}); // Default to global assets.
+		break :blk main.files.cwd().openFile(path) catch |err2| {
+			std.log.err("File not found. Searched in \"{s}\" and also in the assetFolder \"serverAssets\"", .{path});
+			return err2;
+		};
+	};
+	file.close();
+	return Texture.initFromFile(path);
+	
+}
 
 pub fn onOpen() void {
-	generateNodes();
-	var maxYOffset: f32 = 0;
-	for(achievementNodes) |achievement| {
-		if(achievement.achievement.parent() != null) continue;
-		maxYOffset += assignPositions(@intFromEnum(achievement.achievement), 0, maxYOffset);
+	achievementList = .init(main.globalAllocator);
+	for(0..achievements.achievementCount()) |index| {
+		const achievement = Achievement.fromIndex(@intCast(index));
+		achievementList.append(.{
+			.icon = readTexture(achievement.icon()) catch unreachable,
+			.name = achievement.id(),
+		});
 	}
-	var maxDepth: u32 = 0;
-	for(achievementNodes) |achievement| {
-		maxDepth = @max(maxDepth, achievement.depth + 1);
-	}
-	width = @intCast(maxDepth * 64);
-	height = @intFromFloat(maxYOffset * 64);
 
-	list = NoLayoutList.init(.{padding, 16 + padding}, 256, 256, 0);
+	const list = VerticalList.init(.{padding, 16 + padding}, 256, 16);
 	
-	for(achievementNodes) |achievement| {
-		std.debug.print("{d} {d}\n", .{achievement.depth, achievement.yOffset});
-		list.add(Icon.init(.{@floatFromInt(achievement.depth * 32), achievement.yOffset * 32}, .{16, 16}, Button.pressedTextures.texture, true));
+	for(achievementList.items) |achievementData| {
+		const horizontalList = HorizontalList.init();
+		horizontalList.add(Icon.init(.{0, 0}, .{48, 48}, achievementData.icon, true));
+		horizontalList.add(Label.init(.{0, 0}, 200, achievementData.name, .left));
+		horizontalList.finish(.{0, 0}, .center);
+		list.add(horizontalList);
 	}
-	// list.add(Icon.init(.{0, 0}, .{@floatFromInt(width), @floatFromInt(height)}, Button.pressedTextures.texture, true));
-	list.finish();
+	list.finish(.center);
 
 	window.rootComponent = list.toComponent();
 	window.contentSize = window.rootComponent.?.pos() + window.rootComponent.?.size() + @as(Vec2f, @splat(padding));
@@ -97,10 +86,10 @@ pub fn onOpen() void {
 }
 
 pub fn onClose() void {
-	for(achievementNodes) |achievement| {
-		achievement.children.deinit();
+	for(achievementList.items) |achievementData| {
+		achievementData.deinit();
 	}
-	main.globalAllocator.free(achievementNodes);
+	achievementList.deinit();
 	if(window.rootComponent) |*comp| {
 		comp.deinit();
 	}
