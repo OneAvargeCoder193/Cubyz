@@ -96,36 +96,6 @@ pub fn onOpen() void {
 	gui.updateWindowPositions();
 }
 
-pub fn render() void {
-	const oldTranslation = graphics.draw.setTranslation(list.pos);
-	defer graphics.draw.restoreTranslation(oldTranslation);
-	var shiftedPos = list.pos;
-	var clip = list.size;
-	if(list.horizontalScrollBarEnabled) {
-		const diff = list.childrenWidth - list.maxWidth;
-		shiftedPos[0] -= diff*list.horizontalScrollBar.currentState;
-		clip[1] -= 16;
-	}
-	if(list.verticalScrollBarEnabled) {
-		const diff = list.childrenHeight - list.maxHeight;
-		shiftedPos[1] -= diff*list.verticalScrollBar.currentState;
-		clip[0] -= 16;
-	}
-	const oldClip = graphics.draw.setClip(clip);
-	defer graphics.draw.restoreClip(oldClip);
-	_ = graphics.draw.setTranslation(shiftedPos - list.pos);
-	const listPadding: Vec2f = @splat(list.padding);
-	for(achievementNodes) |achievement| {
-		if(achievement.achievement.parent()) |parentIndex| {
-			const parent = achievementNodes[@intFromEnum(parentIndex)];
-			graphics.draw.setColor(0xff000000);
-			graphics.draw.line(listPadding + Vec2f{@floatFromInt(parent.depth * 32 + 16), parent.yOffset * 32 + 8}, listPadding + Vec2f{@floatFromInt(parent.depth * 32 + 24), parent.yOffset * 32 + 8});
-			graphics.draw.line(listPadding + Vec2f{@floatFromInt(achievement.depth * 32 - 8), achievement.yOffset * 32 + 8}, listPadding + Vec2f{@floatFromInt(achievement.depth * 32), achievement.yOffset * 32 + 8});
-			graphics.draw.line(listPadding + Vec2f{@floatFromInt(parent.depth * 32 + 24), parent.yOffset * 32 + 8}, listPadding + Vec2f{@floatFromInt(achievement.depth * 32 - 8), achievement.yOffset * 32 + 8});
-		}
-	}
-}
-
 pub fn onClose() void {
 	for(achievementNodes) |achievement| {
 		achievement.children.deinit();

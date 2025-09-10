@@ -21,17 +21,11 @@ const fontSize: f32 = 16;
 var textureHorizontal: Texture = undefined;
 var textureVertical: Texture = undefined;
 
-const ScrollAxis = enum(u1) {
-	horizontal = 0,
-	vertical = 1,
-};
-
 pos: Vec2f,
 size: Vec2f,
 currentState: f32,
 button: *Button,
 mouseAnchor: f32 = undefined,
-axis: ScrollAxis = undefined,
 
 pub fn __init() void {
 	textureHorizontal = Texture.initFromFile("assets/cubyz/ui/scrollbar_horizontal.png");
@@ -43,7 +37,7 @@ pub fn __deinit() void {
 	textureVertical.deinit();
 }
 
-pub fn init(pos: Vec2f, width: f32, height: f32, initialState: f32, axis: ScrollAxis) *ScrollBar {
+pub fn init(pos: Vec2f, width: f32, height: f32, initialState: f32) *ScrollBar {
 	const button = Button.initText(.{0, 0}, undefined, "", .{});
 	const self = main.globalAllocator.create(ScrollBar);
 	self.* = ScrollBar{
@@ -51,9 +45,8 @@ pub fn init(pos: Vec2f, width: f32, height: f32, initialState: f32, axis: Scroll
 		.size = Vec2f{width, height},
 		.currentState = initialState,
 		.button = button,
-		.axis = axis,
 	};
-	self.button.size = if (axis == .vertical) .{width, 16} else .{16, height};
+	self.button.size = .{width, 16};
 	self.setButtonPosFromValue();
 	return self;
 }
@@ -68,13 +61,13 @@ pub fn toComponent(self: *ScrollBar) GuiComponent {
 }
 
 fn setButtonPosFromValue(self: *ScrollBar) void {
-	const range: f32 = self.size[@intFromEnum(self.axis)] - self.button.size[@intFromEnum(self.axis)];
-	self.button.pos[@intFromEnum(self.axis)] = range*self.currentState;
+	const range: f32 = self.size[1] - self.button.size[1];
+	self.button.pos[1] = range*self.currentState;
 }
 
 fn updateValueFromButtonPos(self: *ScrollBar) void {
-	const range: f32 = self.size[@intFromEnum(self.axis)] - self.button.size[@intFromEnum(self.axis)];
-	const value = self.button.pos[@intFromEnum(self.axis)]/range;
+	const range: f32 = self.size[1] - self.button.size[1];
+	const value = self.button.pos[1]/range;
 	if(value != self.currentState) {
 		self.currentState = value;
 	}
@@ -94,7 +87,7 @@ pub fn updateHovered(self: *ScrollBar, mousePosition: Vec2f) void {
 pub fn mainButtonPressed(self: *ScrollBar, mousePosition: Vec2f) void {
 	if(GuiComponent.contains(self.button.pos, self.button.size, mousePosition - self.pos)) {
 		self.button.mainButtonPressed(mousePosition - self.pos);
-		self.mouseAnchor = mousePosition[@intFromEnum(self.axis)] - self.button.pos[@intFromEnum(self.axis)];
+		self.mouseAnchor = mousePosition[1] - self.button.pos[1];
 	}
 }
 
@@ -112,11 +105,11 @@ pub fn render(self: *ScrollBar, mousePosition: Vec2f) void {
 	draw.setColor(0xff000000);
 	draw.customShadedRect(Button.buttonUniforms, self.pos, self.size);
 
-	const range: f32 = self.size[@intFromEnum(self.axis)] - self.button.size[@intFromEnum(self.axis)];
+	const range: f32 = self.size[1] - self.button.size[1];
 	self.setButtonPosFromValue();
 	if(self.button.pressed) {
-		self.button.pos[@intFromEnum(self.axis)] = mousePosition[@intFromEnum(self.axis)] - self.mouseAnchor;
-		self.button.pos[@intFromEnum(self.axis)] = @min(@max(self.button.pos[@intFromEnum(self.axis)], 0), range - 0.001);
+		self.button.pos[1] = mousePosition[1] - self.mouseAnchor;
+		self.button.pos[1] = @min(@max(self.button.pos[1], 0), range - 0.001);
 		self.updateValueFromButtonPos();
 	}
 	const oldTranslation = draw.setTranslation(self.pos);
