@@ -42,7 +42,7 @@ const Textures = struct {
 };
 var normalTextures: Textures = undefined;
 var hoveredTextures: Textures = undefined;
-pub var pressedTextures: Textures = undefined;
+var pressedTextures: Textures = undefined;
 pub var pipeline: graphics.Pipeline = undefined;
 pub var buttonUniforms: struct {
 	screen: c_int,

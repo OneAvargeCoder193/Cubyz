@@ -1,3 +1,4 @@
 .{
-	.parent = "cubyz:start"
+	.parent = "cubyz:start",
+	.icon = "cubyz:default_icon",
 }
