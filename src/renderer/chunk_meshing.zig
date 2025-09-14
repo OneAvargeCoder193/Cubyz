@@ -643,20 +643,18 @@ pub const ChunkMesh = struct { // MARK: ChunkMesh
 			const dz = z + chunkDz;
 			self.isBackFace = self.face.position.isBackFace;
 			const quadIndex = self.face.blockAndQuad.quadIndex;
-			const normalVector: Vec3f = quadIndex.quadInfo().normal;
-			self.shouldBeCulled = vec.dot(normalVector, @floatFromInt(Vec3i{dx, dy, dz})) > 0; // TODO: Adjust for arbitrary voxel models.
-
-			const quad = self.face.blockAndQuad.quadIndex.quadInfo();
-			var distance: f32 = 0;
+			const quad = quadIndex.quadInfo();
+			const normalVector: Vec3f = quad.normal;
+			var center: Vec3f = @splat(0);
 			for(0..4) |i| {
-				var corner = quad.cornerVec(i) + @as(Vec3f, @floatFromInt(Vec3i{dx, dy, dz}));
-				if(models.Model.getFaceNeighbor(quad)) |_| {
-					corner += normalVector;
-				}
-				distance += vec.lengthSquare(corner);
+				const corner = quad.cornerVec(i) + @as(Vec3f, @floatFromInt(Vec3i{dx, dy, dz}));
+				center += corner;
 			}
-			distance /= 4;
-			std.mem.writeInt(u32, &self.distance, @bitCast(distance), .little);
+			if(models.Model.getFaceNeighbor(quad)) |_| {
+				center -= normalVector;
+			}
+			self.shouldBeCulled = vec.dot(normalVector, center) > 0; // TODO: Adjust for arbitrary voxel models.
+			std.mem.writeInt(u32, &self.distance, @bitCast(vec.lengthSquare(center) / 3.0), .little);
 		}
 	};
 	pos: chunk.ChunkPosition,
@@ -1582,13 +1580,11 @@ pub const ChunkMesh = struct { // MARK: ChunkMesh
 			needsUpdate = true;
 		}
 
-		var relativePos = Vec3d{
+		const relativePos = Vec3d{
 			@as(f64, @floatFromInt(self.pos.wx)) - playerPosition[0],
 			@as(f64, @floatFromInt(self.pos.wy)) - playerPosition[1],
 			@as(f64, @floatFromInt(self.pos.wz)) - playerPosition[2],
 		}/@as(Vec3d, @splat(@as(f64, @floatFromInt(self.pos.voxelSize))));
-		relativePos = @min(relativePos, @as(Vec3d, @splat(0)));
-		relativePos = @max(relativePos, @as(Vec3d, @splat(-32)));
 		const updatePos: Vec3i = @intFromFloat(relativePos);
 		if(@reduce(.Or, updatePos != self.lastTransparentUpdatePos)) {
 			self.lastTransparentUpdatePos = updatePos;
