@@ -630,7 +630,7 @@ pub const PrimitiveMesh = struct { // MARK: PrimitiveMesh
 pub const ChunkMesh = struct { // MARK: ChunkMesh
 	const SortingData = struct {
 		face: FaceData,
-		distance: u32,
+		distance: [4]u8,
 		isBackFace: bool,
 		shouldBeCulled: bool,
 
@@ -645,10 +645,18 @@ pub const ChunkMesh = struct { // MARK: ChunkMesh
 			const quadIndex = self.face.blockAndQuad.quadIndex;
 			const normalVector: Vec3f = quadIndex.quadInfo().normal;
 			self.shouldBeCulled = vec.dot(normalVector, @floatFromInt(Vec3i{dx, dy, dz})) > 0; // TODO: Adjust for arbitrary voxel models.
-			const fullDx = dx - @as(i32, @intFromFloat(normalVector[0])); // TODO: This calculation should only be done for border faces.
-			const fullDy = dy - @as(i32, @intFromFloat(normalVector[1]));
-			const fullDz = dz - @as(i32, @intFromFloat(normalVector[2]));
-			self.distance = @abs(fullDx) + @abs(fullDy) + @abs(fullDz);
+
+			const quad = self.face.blockAndQuad.quadIndex.quadInfo();
+			var distance: f32 = 0;
+			for(0..4) |i| {
+				var corner = quad.cornerVec(i) + @as(Vec3f, @floatFromInt(Vec3i{dx, dy, dz}));
+				if(models.Model.getFaceNeighbor(quad)) |_| {
+					corner += normalVector;
+				}
+				distance += vec.lengthSquare(corner);
+			}
+			distance /= 4;
+			std.mem.writeInt(u32, &self.distance, @bitCast(distance), .little);
 		}
 	};
 	pos: chunk.ChunkPosition,
@@ -1638,37 +1646,36 @@ pub const ChunkMesh = struct { // MARK: ChunkMesh
 			}
 
 			// Sort it using bucket sort:
-			var buckets: [34*3]u32 = undefined;
-			@memset(&buckets, 0);
-			for(self.blockBreakingFacesSortingData) |val| {
-				buckets[34*3 - 1 - val.distance] += 1;
+			var buckets: [256]u32 = undefined;
+			var sorting = main.stackAllocator.alloc(SortingData, self.blockBreakingFacesSortingData.len + self.culledSortingCount);
+			var sortingOut = main.stackAllocator.alloc(SortingData, sorting.len);
+			@memcpy(sorting[0..self.blockBreakingFacesSortingData.len], self.blockBreakingFacesSortingData);
+			@memcpy(sorting[self.blockBreakingFacesSortingData.len..], self.currentSorting[0..self.culledSortingCount]);
+			for(0..4) |byteIndex| {
+				@memset(&buckets, 0);
+				for(sorting) |val| {
+					buckets[256 - 1 - val.distance[byteIndex]] += 1;
+				}
+				var prefixSum: u32 = 0;
+				for(&buckets) |*val| {
+					const copy = val.*;
+					val.* = prefixSum;
+					prefixSum += copy;
+				}
+				for(sorting) |val| {
+					const bucket = 256 - 1 - val.distance[byteIndex];
+					sortingOut[buckets[bucket]] = val;
+					buckets[bucket] += 1;
+				}
+				std.mem.swap([]SortingData, &sorting, &sortingOut);
 			}
-			for(self.currentSorting[0..self.culledSortingCount]) |val| {
-				buckets[34*3 - 1 - val.distance] += 1;
+
+			for(sorting, 0..) |val, i| {
+				self.sortingOutputBuffer[i] = val.face;
 			}
-			var prefixSum: u32 = 0;
-			for(&buckets) |*val| {
-				const copy = val.*;
-				val.* = prefixSum;
-				prefixSum += copy;
-			}
-			// Move it over into a new buffer:
-			for(0..backFaceStart) |i| {
-				const bucket = 34*3 - 1 - self.currentSorting[i].distance;
-				self.sortingOutputBuffer[buckets[bucket]] = self.currentSorting[i].face;
-				buckets[bucket] += 1;
-			}
-			// Block breaking faces should be drawn after front faces, but before the corresponding backfaces.
-			for(self.blockBreakingFacesSortingData) |val| {
-				const bucket = 34*3 - 1 - val.distance;
-				self.sortingOutputBuffer[buckets[bucket]] = val.face;
-				buckets[bucket] += 1;
-			}
-			for(backFaceStart..self.culledSortingCount) |i| {
-				const bucket = 34*3 - 1 - self.currentSorting[i].distance;
-				self.sortingOutputBuffer[buckets[bucket]] = self.currentSorting[i].face;
-				buckets[bucket] += 1;
-			}
+
+			main.stackAllocator.free(sorting);
+			main.stackAllocator.free(sortingOut);
 			self.culledSortingCount += @intCast(self.blockBreakingFaces.items.len);
 			// Upload:
 			faceBuffers[self.transparentMesh.lod].uploadData(self.sortingOutputBuffer[0..self.culledSortingCount], &self.transparentMesh.bufferAllocation);
