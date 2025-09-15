@@ -634,10 +634,10 @@ pub const ChunkMesh = struct { // MARK: ChunkMesh
 		isBackFace: bool,
 		shouldBeCulled: bool,
 
-		pub fn update(self: *SortingData, chunkDx: i32, chunkDy: i32, chunkDz: i32) void {
-			const x: i32 = self.face.position.x;
-			const y: i32 = self.face.position.y;
-			const z: i32 = self.face.position.z;
+		pub fn update(self: *SortingData, chunkDx: f32, chunkDy: f32, chunkDz: f32) void {
+			const x: f32 = @floatFromInt(self.face.position.x);
+			const y: f32 = @floatFromInt(self.face.position.y);
+			const z: f32 = @floatFromInt(self.face.position.z);
 			const dx = x + chunkDx;
 			const dy = y + chunkDy;
 			const dz = z + chunkDz;
@@ -650,11 +650,12 @@ pub const ChunkMesh = struct { // MARK: ChunkMesh
 				const corner = quad.cornerVec(i) + @as(Vec3f, @floatFromInt(Vec3i{dx, dy, dz}));
 				center += corner;
 			}
+			center /= @as(Vec3f, @splat(3.0));
 			if(models.Model.getFaceNeighbor(quad)) |_| {
 				center -= normalVector;
 			}
 			self.shouldBeCulled = vec.dot(normalVector, center) > 0; // TODO: Adjust for arbitrary voxel models.
-			std.mem.writeInt(u32, &self.distance, @bitCast(vec.lengthSquare(center) / 3.0), .little);
+			std.mem.writeInt(u32, &self.distance, @bitCast(vec.lengthSquare(center)), .little);
 		}
 	};
 	pos: chunk.ChunkPosition,
