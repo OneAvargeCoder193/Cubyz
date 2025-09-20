@@ -1,0 +1,12 @@
+.{
+	.tags = .{.stone, .mineable, .glacite},
+	.blockHealth = 25,
+	.blockResistance = 1,
+	.drops = .{
+		.{.items = .{.auto}},
+	},
+	.blockEntity = .painting,
+	.rotation = "cubyz:direction",
+	.model = "cubyz:carpet",
+	.texture = "cubyz:glacite",
+}

@@ -535,6 +535,272 @@ pub const BlockEntityTypes = struct {
 			}
 		}
 	};
+
+	pub const Painting = struct {
+		const StorageServer = BlockEntityDataStorage(struct {
+			data: DataArray,
+		});
+		const StorageClient = BlockEntityDataStorage(struct {
+			data: DataArray,
+			renderedTexture: ?main.graphics.Texture = null,
+			blockPos: Vec3i,
+			block: main.blocks.Block,
+
+			fn deinit(self: @This()) void {
+				if(self.renderedTexture) |texture| {
+					textureDeinitLock.lock();
+					defer textureDeinitLock.unlock();
+					textureDeinitList.append(texture);
+				}
+			}
+		});
+		var textureDeinitList: main.List(graphics.Texture) = undefined;
+		var textureDeinitLock: std.Thread.Mutex = .{};
+		var pipeline: graphics.Pipeline = undefined;
+		var uniforms: struct {
+			ambientLight: c_int,
+			projectionMatrix: c_int,
+			viewMatrix: c_int,
+			playerPositionInteger: c_int,
+			playerPositionFraction: c_int,
+			quadIndex: c_int,
+			lightData: c_int,
+			chunkPos: c_int,
+			blockPos: c_int,
+		} = undefined;
+
+		const textureWidth = 16;
+		const textureHeight = 16;
+		const textureSize = textureWidth*textureHeight;
+		const textureDepth = 1;
+		const TextureData = std.meta.Int(.unsigned, textureDepth);
+		const DataArray = [textureSize]TextureData;
+		const colors = [_]u32 {0x00000000, 0xffffffff};
+
+		pub const id = "painting";
+		pub fn init() void {
+			StorageServer.init();
+			StorageClient.init();
+			textureDeinitList = .init(main.globalAllocator);
+
+			pipeline = graphics.Pipeline.init(
+				"assets/cubyz/shaders/block_entity/sign.vert",
+				"assets/cubyz/shaders/block_entity/sign.frag",
+				"",
+				&uniforms,
+				.{},
+				.{.depthTest = true, .depthCompare = .equal, .depthWrite = false},
+				.{.attachments = &.{.alphaBlending}},
+			);
+		}
+		pub fn deinit() void {
+			while(textureDeinitList.popOrNull()) |texture| {
+				texture.deinit();
+			}
+			textureDeinitList.deinit();
+			pipeline.deinit();
+			StorageServer.deinit();
+			StorageClient.deinit();
+		}
+		pub fn reset() void {
+			StorageServer.reset();
+			StorageClient.reset();
+		}
+
+		pub fn onUnloadClient(dataIndex: BlockEntityIndex) void {
+			StorageClient.mutex.lock();
+			defer StorageClient.mutex.unlock();
+			const entry = StorageClient.removeAtIndex(dataIndex) orelse unreachable;
+			entry.deinit();
+		}
+		pub fn onUnloadServer(dataIndex: BlockEntityIndex) void {
+			StorageServer.mutex.lock();
+			defer StorageServer.mutex.unlock();
+			_ = StorageServer.removeAtIndex(dataIndex) orelse unreachable;
+		}
+		pub fn onInteract(pos: Vec3i, _: *Chunk) EventStatus {
+			if(main.KeyBoard.key("shift").pressed) return .ignored;
+
+			const block = main.renderer.mesh_storage.getBlockFromRenderThread(pos[0], pos[1], pos[2]) orelse return .ignored;
+
+			const playerPosition = main.game.Player.getEyePosBlocking();
+			const relativePlayerPos: Vec3f = @floatCast(playerPosition - @as(Vec3d, @floatFromInt(pos)));
+			const playerDir = main.renderer.crosshairDirection(main.game.camera.viewMatrix, main.settings.fov, main.Window.width, main.Window.height);
+			const intersection = block.mode().rayIntersection(block, null, relativePlayerPos, playerDir) orelse return .ignored;
+			const position: Vec3f = relativePlayerPos + playerDir * @as(Vec3f, @splat(@floatCast(intersection.distance)));
+			const xAxis = ([_]usize{0, 0, 1, 1, 0, 0})[intersection.face.toInt()];
+			const yAxis = ([_]usize{1, 1, 2, 2, 2, 2})[intersection.face.toInt()];
+			const textureX = if(intersection.face.textureX()[xAxis] > 0) position[xAxis] else 1 - position[xAxis];
+			const textureY = if(intersection.face.textureY()[yAxis] > 0) position[yAxis] else 1 - position[yAxis];
+			const pixel: u8 = std.math.lossyCast(u8, textureX * 16) + std.math.lossyCast(u8, textureY * 16) * 16;
+
+			updateDataFromClient(pos, pixel, 1);
+
+			return .handled;
+		}
+
+		pub fn onLoadClient(pos: Vec3i, chunk: *Chunk, reader: *BinaryReader) BinaryReader.AllErrors!void {
+			return updateClientData(pos, chunk, .{.update = reader});
+		}
+		pub fn updateClientData(pos: Vec3i, chunk: *Chunk, event: UpdateEvent) BinaryReader.AllErrors!void {
+			if(event == .remove or event.update.remaining.len == 0) {
+				const entry = StorageClient.remove(pos, chunk) orelse return;
+				entry.deinit();
+				return;
+			}
+
+			StorageClient.mutex.lock();
+			defer StorageClient.mutex.unlock();
+
+			const data = StorageClient.getOrPut(pos, chunk);
+			if(data.foundExisting) {
+				data.valuePtr.deinit();
+			}
+
+			data.valuePtr.* = .{
+				.blockPos = pos,
+				.block = chunk.data.getValue(chunk.getLocalBlockIndex(pos)),
+				.renderedTexture = null,
+				.data = blk: {
+					var arr: DataArray = undefined;
+					for(0..textureSize) |i| {
+						arr[i] = try event.update.readInt(TextureData);
+					}
+					break :blk arr;
+				}
+			};
+		}
+
+		pub fn onLoadServer(pos: Vec3i, chunk: *Chunk, reader: *BinaryReader) BinaryReader.AllErrors!void {
+			return updateServerData(pos, chunk, .{.update = reader});
+		}
+		pub fn updateServerData(pos: Vec3i, chunk: *Chunk, event: UpdateEvent) BinaryReader.AllErrors!void {
+			if(event == .remove or event.update.remaining.len == 0) {
+				_ = StorageServer.remove(pos, chunk) orelse return;
+				return;
+			}
+
+			StorageServer.mutex.lock();
+			defer StorageServer.mutex.unlock();
+
+			const data = StorageServer.getOrPut(pos, chunk);
+			for(0..textureSize) |i| {
+				data.valuePtr.data[i] = try event.update.readInt(TextureData);
+			}
+		}
+
+		pub const onStoreServerToClient = onStoreServerToDisk;
+		pub fn onStoreServerToDisk(dataIndex: BlockEntityIndex, writer: *BinaryWriter) void {
+			StorageServer.mutex.lock();
+			defer StorageServer.mutex.unlock();
+
+			const data = StorageServer.getByIndex(dataIndex) orelse return;
+			for(0..textureSize) |i| {
+				writer.writeInt(TextureData, data.data[i]);
+			}
+		}
+		pub fn getServerToClientData(pos: Vec3i, chunk: *Chunk, writer: *BinaryWriter) void {
+			StorageServer.mutex.lock();
+			defer StorageServer.mutex.unlock();
+
+			const data = StorageServer.get(pos, chunk) orelse return;
+			for(0..textureSize) |i| {
+				writer.writeInt(TextureData, data.data[i]);
+			}
+		}
+
+		pub fn getClientToServerData(pos: Vec3i, chunk: *Chunk, writer: *BinaryWriter) void {
+			StorageClient.mutex.lock();
+			defer StorageClient.mutex.unlock();
+
+			const data = StorageClient.get(pos, chunk) orelse return;
+			for(0..textureSize) |i| {
+				writer.writeInt(TextureData, data.data[i]);
+			}
+		}
+
+		pub fn updateDataFromClient(pos: Vec3i, pixel: u8, color: TextureData) void {
+			{
+				const mesh = main.renderer.mesh_storage.getMesh(.initFromWorldPos(pos, 1)) orelse return;
+				mesh.mutex.lock();
+				defer mesh.mutex.unlock();
+				const index = mesh.chunk.getLocalBlockIndex(pos);
+				const block = mesh.chunk.data.getValue(index);
+				const blockEntity = block.blockEntity() orelse return;
+				if(!std.mem.eql(u8, blockEntity.id, id)) return;
+
+				StorageClient.mutex.lock();
+				defer StorageClient.mutex.unlock();
+
+				const data = StorageClient.getOrPut(pos, mesh.chunk);
+				var newData: DataArray = if(data.foundExisting) data.valuePtr.*.data else @splat(0);
+				if(data.foundExisting) {
+					data.valuePtr.deinit();
+				}
+				newData[pixel] = color;
+				data.valuePtr.* = .{
+					.blockPos = pos,
+					.block = mesh.chunk.data.getValue(mesh.chunk.getLocalBlockIndex(pos)),
+					.renderedTexture = null,
+					.data = newData,
+				};
+			}
+
+			main.network.Protocols.blockEntityUpdate.sendClientDataUpdateToServer(main.game.world.?.conn, pos);
+		}
+
+		pub fn renderAll(projectionMatrix: Mat4f, ambientLight: Vec3f, playerPos: Vec3d) void {
+			StorageClient.mutex.lock();
+			defer StorageClient.mutex.unlock();
+
+			for(StorageClient.storage.dense.items) |*signData| {
+				if(signData.renderedTexture != null) continue;
+
+				c.glViewport(0, 0, textureWidth, textureHeight);
+				defer c.glViewport(0, 0, main.Window.width, main.Window.height);
+
+				var data: [textureSize]u32 = undefined;
+				for(0..textureSize) |i| {
+					data[i] = colors[signData.data[i]];
+				}
+
+				const texture = graphics.Texture.init();
+				texture.bind();
+				c.glTexImage2D(c.GL_TEXTURE_2D, 0, c.GL_RGBA8, textureWidth, textureHeight, 0, c.GL_RGBA, c.GL_UNSIGNED_BYTE, &data);
+				c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, c.GL_NEAREST);
+				c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_NEAREST);
+				c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_S, c.GL_REPEAT);
+				c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_T, c.GL_REPEAT);
+
+				signData.renderedTexture = texture;
+			}
+
+			pipeline.bind(null);
+			c.glBindVertexArray(main.renderer.chunk_meshing.vao);
+
+			c.glUniform3f(uniforms.ambientLight, ambientLight[0], ambientLight[1], ambientLight[2]);
+			c.glUniformMatrix4fv(uniforms.projectionMatrix, 1, c.GL_TRUE, @ptrCast(&projectionMatrix));
+			c.glUniformMatrix4fv(uniforms.viewMatrix, 1, c.GL_TRUE, @ptrCast(&main.game.camera.viewMatrix));
+			c.glUniform3i(uniforms.playerPositionInteger, @intFromFloat(@floor(playerPos[0])), @intFromFloat(@floor(playerPos[1])), @intFromFloat(@floor(playerPos[2])));
+			c.glUniform3f(uniforms.playerPositionFraction, @floatCast(@mod(playerPos[0], 1)), @floatCast(@mod(playerPos[1], 1)), @floatCast(@mod(playerPos[2], 1)));
+
+			outer: for(StorageClient.storage.dense.items) |signData| {
+				if(main.blocks.meshes.model(signData.block).model().internalQuads.len == 0) continue;
+				const quad = main.blocks.meshes.model(signData.block).model().internalQuads[0];
+
+				signData.renderedTexture.?.bindTo(0);
+
+				c.glUniform1i(uniforms.quadIndex, @intFromEnum(quad));
+				const mesh = main.renderer.mesh_storage.getMesh(main.chunk.ChunkPosition.initFromWorldPos(signData.blockPos, 1)) orelse continue :outer;
+				const light: [4]u32 = main.renderer.chunk_meshing.PrimitiveMesh.getLight(mesh, signData.blockPos -% Vec3i{mesh.pos.wx, mesh.pos.wy, mesh.pos.wz}, 0, quad);
+				c.glUniform4ui(uniforms.lightData, light[0], light[1], light[2], light[3]);
+				c.glUniform3i(uniforms.chunkPos, signData.blockPos[0] & ~main.chunk.chunkMask, signData.blockPos[1] & ~main.chunk.chunkMask, signData.blockPos[2] & ~main.chunk.chunkMask);
+				c.glUniform3i(uniforms.blockPos, signData.blockPos[0] & main.chunk.chunkMask, signData.blockPos[1] & main.chunk.chunkMask, signData.blockPos[2] & main.chunk.chunkMask);
+
+				c.glDrawElements(c.GL_TRIANGLES, 6, c.GL_UNSIGNED_INT, null);
+			}
+		}
+	};
 };
 
 var blockyEntityTypes: std.StringHashMapUnmanaged(BlockEntityType) = .{};
