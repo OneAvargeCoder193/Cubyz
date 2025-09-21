@@ -51,43 +51,109 @@ pub const Ore = struct {
 	blockType: u16,
 };
 
-var _transparent: [maxBlockCount]bool = undefined;
-var _collide: [maxBlockCount]bool = undefined;
-var _id: [maxBlockCount][]u8 = undefined;
+pub const BlockState = struct {
+	id: []u8,
+	transparent: bool,
+	collide: bool,
 
-var _blockHealth: [maxBlockCount]f32 = undefined;
-var _blockResistance: [maxBlockCount]f32 = undefined;
+	blockHealth: f32,
+	blockResistance: f32,
 
-/// Whether you can replace it with another block, mainly used for fluids/gases
-var _replacable: [maxBlockCount]bool = undefined;
-var _selectable: [maxBlockCount]bool = undefined;
-var _blockDrops: [maxBlockCount][]BlockDrop = undefined;
-/// Meaning undegradable parts of trees or other structures can grow through this block.
-var _degradable: [maxBlockCount]bool = undefined;
-var _viewThrough: [maxBlockCount]bool = undefined;
-var _alwaysViewThrough: [maxBlockCount]bool = undefined;
-var _hasBackFace: [maxBlockCount]bool = undefined;
-var _blockTags: [maxBlockCount][]Tag = undefined;
-var _light: [maxBlockCount]u32 = undefined;
-/// How much light this block absorbs if it is transparent
-var _absorption: [maxBlockCount]u32 = undefined;
-/// GUI that is opened on click.
-var _gui: [maxBlockCount][]u8 = undefined;
-var _mode: [maxBlockCount]*RotationMode = undefined;
-var _modeData: [maxBlockCount]u16 = undefined;
-var _lodReplacement: [maxBlockCount]u16 = undefined;
-var _opaqueVariant: [maxBlockCount]u16 = undefined;
+	/// Whether you can replace it with another block, mainly used for fluids/gases
+	replacable: bool,
+	selectable: bool,
+	blockDrops: []BlockDrop,
+	/// Meaning undegradable parts of trees or other structures can grow through this block.
+	degradable: bool,
+	viewThrough: bool,
+	alwaysViewThrough: bool,
+	hasBackFace: bool,
+	blockTags: []Tag,
+	light: u32,
+	/// How much light this block absorbs if it is transparent
+	absorption: u32,
+	/// GUI that is opened on click.
+	gui: []u8,
+	model: ModelIndex,
+	lodReplacement: u16,
+	opaqueVariant: u16,
 
-var _friction: [maxBlockCount]f32 = undefined;
-var _bounciness: [maxBlockCount]f32 = undefined;
-var _density: [maxBlockCount]f32 = undefined;
-var _terminalVelocity: [maxBlockCount]f32 = undefined;
-var _mobility: [maxBlockCount]f32 = undefined;
+	friction: f32,
+	bounciness: f32,
+	density: f32,
+	terminalVelocity: f32,
+	mobility: f32,
 
-var _allowOres: [maxBlockCount]bool = undefined;
-var _tickEvent: [maxBlockCount]?TickEvent = undefined;
-var _touchFunction: [maxBlockCount]?*const TouchFunction = undefined;
-var _blockEntity: [maxBlockCount]?*BlockEntityType = undefined;
+	allowOres: bool,
+	tickEvent: ?TickEvent,
+	touchFunction: ?*const TouchFunction,
+	blockEntity: ?*BlockEntityType,
+
+	pub fn fromZon(id: []const u8, zon: ZonElement) BlockState {
+		var out: BlockState = undefined;
+
+		out.id[size] = allocator.dupe(u8, id);
+		
+		out.model[size] = rotation.getByID(zon.get([]const u8, "rotation", "cubyz:no_rotation"));
+		out.blockHealth[size] = zon.get(f32, "blockHealth", 1);
+		out.blockResistance[size] = zon.get(f32, "blockResistance", 0);
+
+		out.blockTags[size] = Tag.loadTagsFromZon(allocator, zon.getChild("tags"));
+		if(out.blockTags[size].len == 0) std.log.err("Block {s} is missing 'tags' field", .{id});
+		for(out.blockTags[size]) |tag| {
+			if(tag == Tag.sbbChild) {
+				sbb.registerChildBlock(@intCast(size), _id[size]);
+				break;
+			}
+		}
+		out.light[size] = zon.get(u32, "emittedLight", 0);
+		out.absorption[size] = zon.get(u32, "absorbedLight", 0xffffff);
+		out.degradable[size] = zon.get(bool, "degradable", false);
+		out.selectable[size] = zon.get(bool, "selectable", true);
+		out.replacable[size] = zon.get(bool, "replacable", false);
+		out.gui[size] = allocator.dupe(u8, zon.get([]const u8, "gui", ""));
+		out.transparent[size] = zon.get(bool, "transparent", false);
+		out.collide[size] = zon.get(bool, "collide", true);
+		out.alwaysViewThrough[size] = zon.get(bool, "alwaysViewThrough", false);
+		out.viewThrough[size] = zon.get(bool, "viewThrough", false) or _transparent[size] or _alwaysViewThrough[size];
+		out.hasBackFace[size] = zon.get(bool, "hasBackFace", false);
+		out.friction[size] = zon.get(f32, "friction", 20);
+		out.bounciness[size] = zon.get(f32, "bounciness", 0.0);
+		out.density[size] = zon.get(f32, "density", 0.001);
+		out.terminalVelocity[size] = zon.get(f32, "terminalVelocity", 90);
+		out.mobility[size] = zon.get(f32, "mobility", 1.0);
+		out.allowOres[size] = zon.get(bool, "allowOres", false);
+		out.tickEvent[size] = TickEvent.loadFromZon(zon.getChild("tickEvent"));
+
+		out.touchFunction[size] = if(zon.get(?[]const u8, "touchFunction", null)) |touchFunctionName| blk: {
+			const _function = touchFunctions.getFunctionPointer(touchFunctionName);
+			if(_function == null) {
+				std.log.err("Could not find TouchFunction {s}!", .{touchFunctionName});
+			}
+			break :blk _function;
+		} else null;
+
+		out.blockEntity[size] = block_entity.getByID(zon.get(?[]const u8, "blockEntity", null));
+
+		const oreProperties = zon.getChild("ore");
+		if(oreProperties != .null) blk: {
+			if(!std.mem.eql(u8, zon.get([]const u8, "rotation", "cubyz:no_rotation"), "cubyz:ore")) {
+				std.log.err("Ore must have rotation mode \"cubyz:ore\"!", .{});
+				break :blk;
+			}
+			ores.append(Ore{
+				.veins = oreProperties.get(f32, "veins", 0),
+				.size = oreProperties.get(f32, "size", 0),
+				.maxHeight = oreProperties.get(i32, "height", 0),
+				.minHeight = oreProperties.get(i32, "minHeight", std.math.minInt(i32)),
+				.density = oreProperties.get(f32, "density", 0.5),
+				.blockType = @intCast(size),
+			});
+		}
+
+		return out;
+	}
+};
 
 var reverseIndices = std.StringHashMap(u16).init(allocator.allocator);
 
@@ -99,72 +165,6 @@ pub fn init() void {}
 
 pub fn deinit() void {
 	arena.deinit();
-}
-
-pub fn register(_: []const u8, id: []const u8, zon: ZonElement) u16 {
-	_id[size] = allocator.dupe(u8, id);
-	reverseIndices.put(_id[size], @intCast(size)) catch unreachable;
-
-	_mode[size] = rotation.getByID(zon.get([]const u8, "rotation", "cubyz:no_rotation"));
-	_blockHealth[size] = zon.get(f32, "blockHealth", 1);
-	_blockResistance[size] = zon.get(f32, "blockResistance", 0);
-
-	_blockTags[size] = Tag.loadTagsFromZon(allocator, zon.getChild("tags"));
-	if(_blockTags[size].len == 0) std.log.err("Block {s} is missing 'tags' field", .{id});
-	for(_blockTags[size]) |tag| {
-		if(tag == Tag.sbbChild) {
-			sbb.registerChildBlock(@intCast(size), _id[size]);
-			break;
-		}
-	}
-	_light[size] = zon.get(u32, "emittedLight", 0);
-	_absorption[size] = zon.get(u32, "absorbedLight", 0xffffff);
-	_degradable[size] = zon.get(bool, "degradable", false);
-	_selectable[size] = zon.get(bool, "selectable", true);
-	_replacable[size] = zon.get(bool, "replacable", false);
-	_gui[size] = allocator.dupe(u8, zon.get([]const u8, "gui", ""));
-	_transparent[size] = zon.get(bool, "transparent", false);
-	_collide[size] = zon.get(bool, "collide", true);
-	_alwaysViewThrough[size] = zon.get(bool, "alwaysViewThrough", false);
-	_viewThrough[size] = zon.get(bool, "viewThrough", false) or _transparent[size] or _alwaysViewThrough[size];
-	_hasBackFace[size] = zon.get(bool, "hasBackFace", false);
-	_friction[size] = zon.get(f32, "friction", 20);
-	_bounciness[size] = zon.get(f32, "bounciness", 0.0);
-	_density[size] = zon.get(f32, "density", 0.001);
-	_terminalVelocity[size] = zon.get(f32, "terminalVelocity", 90);
-	_mobility[size] = zon.get(f32, "mobility", 1.0);
-	_allowOres[size] = zon.get(bool, "allowOres", false);
-	_tickEvent[size] = TickEvent.loadFromZon(zon.getChild("tickEvent"));
-
-	_touchFunction[size] = if(zon.get(?[]const u8, "touchFunction", null)) |touchFunctionName| blk: {
-		const _function = touchFunctions.getFunctionPointer(touchFunctionName);
-		if(_function == null) {
-			std.log.err("Could not find TouchFunction {s}!", .{touchFunctionName});
-		}
-		break :blk _function;
-	} else null;
-
-	_blockEntity[size] = block_entity.getByID(zon.get(?[]const u8, "blockEntity", null));
-
-	const oreProperties = zon.getChild("ore");
-	if(oreProperties != .null) blk: {
-		if(!std.mem.eql(u8, zon.get([]const u8, "rotation", "cubyz:no_rotation"), "cubyz:ore")) {
-			std.log.err("Ore must have rotation mode \"cubyz:ore\"!", .{});
-			break :blk;
-		}
-		ores.append(Ore{
-			.veins = oreProperties.get(f32, "veins", 0),
-			.size = oreProperties.get(f32, "size", 0),
-			.maxHeight = oreProperties.get(i32, "height", 0),
-			.minHeight = oreProperties.get(i32, "minHeight", std.math.minInt(i32)),
-			.density = oreProperties.get(f32, "density", 0.5),
-			.blockType = @intCast(size),
-		});
-	}
-
-	defer size += 1;
-	std.log.debug("Registered block: {d: >5} '{s}'", .{size, id});
-	return @intCast(size);
 }
 
 fn registerBlockDrop(typ: u16, zon: ZonElement) void {
@@ -299,16 +299,13 @@ pub fn hasRegistered(id: []const u8) bool {
 }
 
 pub const Block = packed struct { // MARK: Block
-	typ: u16,
-	data: u16,
-
-	pub const air = Block{.typ = 0, .data = 0};
+	stateId: u32,
 
 	pub fn toInt(self: Block) u32 {
-		return @as(u32, self.typ) | @as(u32, self.data) << 16;
+		return self.stateId;
 	}
 	pub fn fromInt(self: u32) Block {
-		return Block{.typ = @truncate(self), .data = @intCast(self >> 16)};
+		return Block{.stateId = self};
 	}
 
 	pub inline fn transparent(self: Block) bool {
