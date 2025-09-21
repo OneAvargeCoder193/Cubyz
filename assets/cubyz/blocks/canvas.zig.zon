@@ -8,5 +8,7 @@
 	.blockEntity = .painting,
 	.rotation = "cubyz:direction",
 	.model = "cubyz:carpet",
-	.texture = "cubyz:glacite",
+	.texture = "cubyz:canvas_side",
+	.texture_top = "cubyz:canvas_front",
+	.texture_bottom = "cubyz:canvas_back",
 }

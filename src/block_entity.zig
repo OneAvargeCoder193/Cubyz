@@ -538,10 +538,10 @@ pub const BlockEntityTypes = struct {
 
 	pub const Painting = struct {
 		const StorageServer = BlockEntityDataStorage(struct {
-			data: DataArray,
+			data: [textureSize]u32,
 		});
 		const StorageClient = BlockEntityDataStorage(struct {
-			data: DataArray,
+			data: [textureSize]u32,
 			renderedTexture: ?main.graphics.Texture = null,
 			blockPos: Vec3i,
 			block: main.blocks.Block,
@@ -572,10 +572,6 @@ pub const BlockEntityTypes = struct {
 		const textureWidth = 16;
 		const textureHeight = 16;
 		const textureSize = textureWidth*textureHeight;
-		const textureDepth = 1;
-		const TextureData = std.meta.Int(.unsigned, textureDepth);
-		const DataArray = [textureSize]TextureData;
-		const colors = [_]u32 {0x00000000, 0xffffffff};
 
 		pub const id = "painting";
 		pub fn init() void {
@@ -627,14 +623,20 @@ pub const BlockEntityTypes = struct {
 			const relativePlayerPos: Vec3f = @floatCast(playerPosition - @as(Vec3d, @floatFromInt(pos)));
 			const playerDir = main.renderer.crosshairDirection(main.game.camera.viewMatrix, main.settings.fov, main.Window.width, main.Window.height);
 			const intersection = block.mode().rayIntersection(block, null, relativePlayerPos, playerDir) orelse return .ignored;
+			const expectedDir = main.blocks.meshes.model(block).model().internalQuads[0].extraQuadInfo().alignedNormalDirection orelse return .ignored;
+			if(intersection.face != expectedDir) {
+				return .ignored;
+			}
 			const position: Vec3f = relativePlayerPos + playerDir * @as(Vec3f, @splat(@floatCast(intersection.distance)));
 			const xAxis = ([_]usize{0, 0, 1, 1, 0, 0})[intersection.face.toInt()];
 			const yAxis = ([_]usize{1, 1, 2, 2, 2, 2})[intersection.face.toInt()];
 			const textureX = if(intersection.face.textureX()[xAxis] > 0) position[xAxis] else 1 - position[xAxis];
 			const textureY = if(intersection.face.textureY()[yAxis] > 0) position[yAxis] else 1 - position[yAxis];
-			const pixel: u8 = std.math.lossyCast(u8, textureX * 16) + std.math.lossyCast(u8, textureY * 16) * 16;
+			const x = std.math.lossyCast(u8, textureX * 16);
+			const y = std.math.lossyCast(u8, textureY * 16);
+			const pixel: u8 = x + y * 16;
 
-			updateDataFromClient(pos, pixel, 1);
+			updateDataFromClient(pos, pixel, 0xff000000);
 
 			return .handled;
 		}
@@ -662,9 +664,9 @@ pub const BlockEntityTypes = struct {
 				.block = chunk.data.getValue(chunk.getLocalBlockIndex(pos)),
 				.renderedTexture = null,
 				.data = blk: {
-					var arr: DataArray = undefined;
+					var arr: [textureSize]u32 = undefined;
 					for(0..textureSize) |i| {
-						arr[i] = try event.update.readInt(TextureData);
+						arr[i] = try event.update.readInt(u32);
 					}
 					break :blk arr;
 				}
@@ -685,7 +687,7 @@ pub const BlockEntityTypes = struct {
 
 			const data = StorageServer.getOrPut(pos, chunk);
 			for(0..textureSize) |i| {
-				data.valuePtr.data[i] = try event.update.readInt(TextureData);
+				data.valuePtr.data[i] = try event.update.readInt(u32);
 			}
 		}
 
@@ -696,7 +698,7 @@ pub const BlockEntityTypes = struct {
 
 			const data = StorageServer.getByIndex(dataIndex) orelse return;
 			for(0..textureSize) |i| {
-				writer.writeInt(TextureData, data.data[i]);
+				writer.writeInt(u32, data.data[i]);
 			}
 		}
 		pub fn getServerToClientData(pos: Vec3i, chunk: *Chunk, writer: *BinaryWriter) void {
@@ -705,7 +707,7 @@ pub const BlockEntityTypes = struct {
 
 			const data = StorageServer.get(pos, chunk) orelse return;
 			for(0..textureSize) |i| {
-				writer.writeInt(TextureData, data.data[i]);
+				writer.writeInt(u32, data.data[i]);
 			}
 		}
 
@@ -715,11 +717,11 @@ pub const BlockEntityTypes = struct {
 
 			const data = StorageClient.get(pos, chunk) orelse return;
 			for(0..textureSize) |i| {
-				writer.writeInt(TextureData, data.data[i]);
+				writer.writeInt(u32, data.data[i]);
 			}
 		}
 
-		pub fn updateDataFromClient(pos: Vec3i, pixel: u8, color: TextureData) void {
+		pub fn updateDataFromClient(pos: Vec3i, pixel: u8, color: u32) void {
 			{
 				const mesh = main.renderer.mesh_storage.getMesh(.initFromWorldPos(pos, 1)) orelse return;
 				mesh.mutex.lock();
@@ -733,7 +735,7 @@ pub const BlockEntityTypes = struct {
 				defer StorageClient.mutex.unlock();
 
 				const data = StorageClient.getOrPut(pos, mesh.chunk);
-				var newData: DataArray = if(data.foundExisting) data.valuePtr.*.data else @splat(0);
+				var newData: [textureSize]u32 = if(data.foundExisting) data.valuePtr.*.data else @splat(0);
 				if(data.foundExisting) {
 					data.valuePtr.deinit();
 				}
@@ -759,14 +761,9 @@ pub const BlockEntityTypes = struct {
 				c.glViewport(0, 0, textureWidth, textureHeight);
 				defer c.glViewport(0, 0, main.Window.width, main.Window.height);
 
-				var data: [textureSize]u32 = undefined;
-				for(0..textureSize) |i| {
-					data[i] = colors[signData.data[i]];
-				}
-
 				const texture = graphics.Texture.init();
 				texture.bind();
-				c.glTexImage2D(c.GL_TEXTURE_2D, 0, c.GL_RGBA8, textureWidth, textureHeight, 0, c.GL_RGBA, c.GL_UNSIGNED_BYTE, &data);
+				c.glTexImage2D(c.GL_TEXTURE_2D, 0, c.GL_RGBA8, textureWidth, textureHeight, 0, c.GL_RGBA, c.GL_UNSIGNED_BYTE, &signData.data);
 				c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, c.GL_NEAREST);
 				c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_NEAREST);
 				c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_S, c.GL_REPEAT);
