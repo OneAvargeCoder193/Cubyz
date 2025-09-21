@@ -53,6 +53,7 @@ pub const Ore = struct {
 
 pub const BlockState = struct {
 	id: []u8,
+	index: u32,
 	transparent: bool,
 	collide: bool,
 
@@ -75,8 +76,8 @@ pub const BlockState = struct {
 	/// GUI that is opened on click.
 	gui: []u8,
 	model: ModelIndex,
-	lodReplacement: u16,
-	opaqueVariant: u16,
+	lodReplacement: u32,
+	opaqueVariant: u32,
 
 	friction: f32,
 	bounciness: f32,
@@ -89,43 +90,44 @@ pub const BlockState = struct {
 	touchFunction: ?*const TouchFunction,
 	blockEntity: ?*BlockEntityType,
 
-	pub fn fromZon(id: []const u8, zon: ZonElement) BlockState {
+	pub fn fromZon(id: []const u8, index: u32, zon: ZonElement) BlockState {
 		var out: BlockState = undefined;
 
-		out.id[size] = allocator.dupe(u8, id);
+		out.id = allocator.dupe(u8, id);
+		out.index = index;
 		
-		out.model[size] = rotation.getByID(zon.get([]const u8, "rotation", "cubyz:no_rotation"));
-		out.blockHealth[size] = zon.get(f32, "blockHealth", 1);
-		out.blockResistance[size] = zon.get(f32, "blockResistance", 0);
+		out.model = rotation.getByID(zon.get([]const u8, "rotation", "cubyz:no_rotation"));
+		out.blockHealth = zon.get(f32, "blockHealth", 1);
+		out.blockResistance = zon.get(f32, "blockResistance", 0);
 
-		out.blockTags[size] = Tag.loadTagsFromZon(allocator, zon.getChild("tags"));
-		if(out.blockTags[size].len == 0) std.log.err("Block {s} is missing 'tags' field", .{id});
-		for(out.blockTags[size]) |tag| {
+		out.blockTags = Tag.loadTagsFromZon(allocator, zon.getChild("tags"));
+		if(out.blockTags.len == 0) std.log.err("Block {s} is missing 'tags' field", .{id});
+		for(out.blockTags) |tag| {
 			if(tag == Tag.sbbChild) {
-				sbb.registerChildBlock(@intCast(size), _id[size]);
+				sbb.registerChildBlock(@intCast(size), out.id);
 				break;
 			}
 		}
-		out.light[size] = zon.get(u32, "emittedLight", 0);
-		out.absorption[size] = zon.get(u32, "absorbedLight", 0xffffff);
-		out.degradable[size] = zon.get(bool, "degradable", false);
-		out.selectable[size] = zon.get(bool, "selectable", true);
-		out.replacable[size] = zon.get(bool, "replacable", false);
-		out.gui[size] = allocator.dupe(u8, zon.get([]const u8, "gui", ""));
-		out.transparent[size] = zon.get(bool, "transparent", false);
-		out.collide[size] = zon.get(bool, "collide", true);
-		out.alwaysViewThrough[size] = zon.get(bool, "alwaysViewThrough", false);
-		out.viewThrough[size] = zon.get(bool, "viewThrough", false) or _transparent[size] or _alwaysViewThrough[size];
-		out.hasBackFace[size] = zon.get(bool, "hasBackFace", false);
-		out.friction[size] = zon.get(f32, "friction", 20);
-		out.bounciness[size] = zon.get(f32, "bounciness", 0.0);
-		out.density[size] = zon.get(f32, "density", 0.001);
-		out.terminalVelocity[size] = zon.get(f32, "terminalVelocity", 90);
-		out.mobility[size] = zon.get(f32, "mobility", 1.0);
-		out.allowOres[size] = zon.get(bool, "allowOres", false);
-		out.tickEvent[size] = TickEvent.loadFromZon(zon.getChild("tickEvent"));
+		out.light = zon.get(u32, "emittedLight", 0);
+		out.absorption = zon.get(u32, "absorbedLight", 0xffffff);
+		out.degradable = zon.get(bool, "degradable", false);
+		out.selectable = zon.get(bool, "selectable", true);
+		out.replacable = zon.get(bool, "replacable", false);
+		out.gui = allocator.dupe(u8, zon.get([]const u8, "gui", ""));
+		out.transparent = zon.get(bool, "transparent", false);
+		out.collide = zon.get(bool, "collide", true);
+		out.alwaysViewThrough = zon.get(bool, "alwaysViewThrough", false);
+		out.viewThrough = zon.get(bool, "viewThrough", false) or out.transparent or out.alwaysViewThrough;
+		out.hasBackFace = zon.get(bool, "hasBackFace", false);
+		out.friction = zon.get(f32, "friction", 20);
+		out.bounciness = zon.get(f32, "bounciness", 0.0);
+		out.density = zon.get(f32, "density", 0.001);
+		out.terminalVelocity = zon.get(f32, "terminalVelocity", 90);
+		out.mobility = zon.get(f32, "mobility", 1.0);
+		out.allowOres = zon.get(bool, "allowOres", false);
+		out.tickEvent = TickEvent.loadFromZon(zon.getChild("tickEvent"));
 
-		out.touchFunction[size] = if(zon.get(?[]const u8, "touchFunction", null)) |touchFunctionName| blk: {
+		out.touchFunction = if(zon.get(?[]const u8, "touchFunction", null)) |touchFunctionName| blk: {
 			const _function = touchFunctions.getFunctionPointer(touchFunctionName);
 			if(_function == null) {
 				std.log.err("Could not find TouchFunction {s}!", .{touchFunctionName});
@@ -133,7 +135,7 @@ pub const BlockState = struct {
 			break :blk _function;
 		} else null;
 
-		out.blockEntity[size] = block_entity.getByID(zon.get(?[]const u8, "blockEntity", null));
+		out.blockEntity = block_entity.getByID(zon.get(?[]const u8, "blockEntity", null));
 
 		const oreProperties = zon.getChild("ore");
 		if(oreProperties != .null) blk: {
@@ -153,12 +155,61 @@ pub const BlockState = struct {
 
 		return out;
 	}
+
+	pub fn registerBlockDrop(self: *BlockState, zon: ZonElement) void {
+		const drops = zon.getChild("drops").toSlice();
+		self.blockDrops = allocator.alloc(BlockDrop, drops.len);
+
+		for(drops, 0..) |blockDrop, i| {
+			self.blockDrops[i].chance = blockDrop.get(f32, "chance", 1);
+			const itemZons = blockDrop.getChild("items").toSlice();
+			var resultItems = main.List(items.ItemStack).initCapacity(main.stackAllocator, itemZons.len);
+			defer resultItems.deinit();
+
+			for(itemZons) |itemZon| {
+				var string = itemZon.as([]const u8, "auto");
+				string = std.mem.trim(u8, string, " ");
+				var iterator = std.mem.splitScalar(u8, string, ' ');
+				var name = iterator.first();
+				var amount: u16 = 1;
+				while(iterator.next()) |next| {
+					if(next.len == 0) continue; // skip multiple spaces.
+					amount = std.fmt.parseInt(u16, name, 0) catch 1;
+					name = next;
+					break;
+				}
+
+				if(std.mem.eql(u8, name, "auto")) {
+					name = self.id;
+				}
+
+				const item = items.BaseItemIndex.fromId(name) orelse continue;
+				resultItems.append(.{.item = .{.baseItem = item}, .amount = amount});
+			}
+
+			self.blockDrops[i].items = allocator.dupe(items.ItemStack, resultItems.items);
+		}
+	}
+
+	pub fn registerLodReplacement(self: *BlockState, zon: ZonElement) void {
+		if(zon.get(?[]const u8, "lodReplacement", null)) |replacement| {
+			self.lodReplacement = getTypeById(replacement);
+		} else {
+			self.lodReplacement = self.index;
+		}
+	}
+
+	pub fn registerOpaqueVariant(self: *BlockState, zon: ZonElement) void {
+		if(zon.get(?[]const u8, "opaqueVariant", null)) |replacement| {
+			self.opaqueVariant = getTypeById(replacement);
+		} else {
+			self.opaqueVariant = self.index;
+		}
+	}
 };
 
-var reverseIndices = std.StringHashMap(u16).init(allocator.allocator);
-
-var size: u32 = 0;
-
+var blocks: main.List(BlockState) = .init(allocator);
+var reverseIndices = std.StringHashMap(u32).init(allocator.allocator);
 pub var ores: main.List(Ore) = .init(allocator);
 
 pub fn init() void {}
@@ -167,115 +218,35 @@ pub fn deinit() void {
 	arena.deinit();
 }
 
-fn registerBlockDrop(typ: u16, zon: ZonElement) void {
-	const drops = zon.getChild("drops").toSlice();
-	_blockDrops[typ] = allocator.alloc(BlockDrop, drops.len);
-
-	for(drops, 0..) |blockDrop, i| {
-		_blockDrops[typ][i].chance = blockDrop.get(f32, "chance", 1);
-		const itemZons = blockDrop.getChild("items").toSlice();
-		var resultItems = main.List(items.ItemStack).initCapacity(main.stackAllocator, itemZons.len);
-		defer resultItems.deinit();
-
-		for(itemZons) |itemZon| {
-			var string = itemZon.as([]const u8, "auto");
-			string = std.mem.trim(u8, string, " ");
-			var iterator = std.mem.splitScalar(u8, string, ' ');
-			var name = iterator.first();
-			var amount: u16 = 1;
-			while(iterator.next()) |next| {
-				if(next.len == 0) continue; // skip multiple spaces.
-				amount = std.fmt.parseInt(u16, name, 0) catch 1;
-				name = next;
-				break;
-			}
-
-			if(std.mem.eql(u8, name, "auto")) {
-				name = _id[typ];
-			}
-
-			const item = items.BaseItemIndex.fromId(name) orelse continue;
-			resultItems.append(.{.item = .{.baseItem = item}, .amount = amount});
-		}
-
-		_blockDrops[typ][i].items = allocator.dupe(items.ItemStack, resultItems.items);
-	}
-}
-
-fn registerLodReplacement(typ: u16, zon: ZonElement) void {
-	if(zon.get(?[]const u8, "lodReplacement", null)) |replacement| {
-		_lodReplacement[typ] = getTypeById(replacement);
-	} else {
-		_lodReplacement[typ] = typ;
-	}
-}
-
-fn registerOpaqueVariant(typ: u16, zon: ZonElement) void {
-	if(zon.get(?[]const u8, "opaqueVariant", null)) |replacement| {
-		_opaqueVariant[typ] = getTypeById(replacement);
-	} else {
-		_opaqueVariant[typ] = typ;
-	}
-}
-
 pub fn finishBlocks(zonElements: Assets.ZonHashMap) void {
-	var i: u16 = 0;
-	while(i < size) : (i += 1) {
-		registerBlockDrop(i, zonElements.get(_id[i]) orelse continue);
+	for(blocks.items) |*state| {
+		state.registerBlockDrop(zonElements.get(state.id) orelse continue);
 	}
-	i = 0;
-	while(i < size) : (i += 1) {
-		registerLodReplacement(i, zonElements.get(_id[i]) orelse continue);
-		registerOpaqueVariant(i, zonElements.get(_id[i]) orelse continue);
+	for(blocks.items) |*state| {
+		state.registerLodReplacement(zonElements.get(state.id) orelse continue);
+		state.registerOpaqueVariant(zonElements.get(state.id) orelse continue);
 	}
 	blueprint.registerVoidBlock(parseBlock("cubyz:void"));
 }
 
+pub fn register(_: []const u8, id: []const u8, zon: ZonElement) void {
+	blocks.append(BlockState.fromZon(id, blocks.items.len, zon));
+}
+
 pub fn reset() void {
-	size = 0;
+	blocks.clearAndFree();
 	ores.clearAndFree();
 	meshes.reset();
 	_ = arena.reset(.free_all);
 	reverseIndices = .init(arena.allocator().allocator);
 }
 
-pub fn getTypeById(id: []const u8) u16 {
+pub fn parseBlock(id: []const u8) u32 {
 	if(reverseIndices.get(id)) |result| {
 		return result;
 	} else {
 		std.log.err("Couldn't find block {s}. Replacing it with air...", .{id});
 		return 0;
-	}
-}
-
-fn parseBlockData(fullBlockId: []const u8, data: []const u8) ?u16 {
-	if(std.mem.containsAtLeastScalar(u8, data, 1, ':')) {
-		const oreChild = parseBlock(data);
-		if(oreChild.data != 0) {
-			std.log.warn("Error while parsing ore block data of '{s}': Parent block data must be 0.", .{fullBlockId});
-		}
-		return oreChild.typ;
-	}
-	return std.fmt.parseInt(u16, data, 0) catch |err| {
-		std.log.err("Error while parsing block data of '{s}': {s}", .{fullBlockId, @errorName(err)});
-		return null;
-	};
-}
-
-pub fn parseBlock(data: []const u8) Block {
-	var id: []const u8 = data;
-	var blockData: ?u16 = null;
-	if(std.mem.indexOfScalarPos(u8, data, 1 + (std.mem.indexOfScalar(u8, data, ':') orelse 0), ':')) |pos| {
-		id = data[0..pos];
-		blockData = parseBlockData(data, data[pos + 1 ..]);
-	}
-	if(reverseIndices.get(id)) |resultType| {
-		var result: Block = .{.typ = resultType, .data = 0};
-		result.data = blockData orelse result.mode().naturalStandard;
-		return result;
-	} else {
-		std.log.err("Couldn't find block {s}. Replacing it with air...", .{id});
-		return .{.typ = 0, .data = 0};
 	}
 }
 
