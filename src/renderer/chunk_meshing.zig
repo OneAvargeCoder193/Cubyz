@@ -199,7 +199,7 @@ fn bindCommonUniforms(locations: *UniformStruct, projMatrix: Mat4f, ambient: Vec
 	c.glUniform3f(locations.playerPositionFraction, @floatCast(@mod(playerPos[0], 1)), @floatCast(@mod(playerPos[1], 1)), @floatCast(@mod(playerPos[2], 1)));
 }
 
-pub fn bindShaderAndUniforms(projMatrix: Mat4f, ambient: Vec3f, playerPos: Vec3d) void {
+pub fn bindShaderAndUniforms(projMatrix: Mat4f, viewMatrix: , ambient: Vec3f, playerPos: Vec3d) void {
 	pipeline.bind(null);
 
 	bindCommonUniforms(&uniforms, projMatrix, ambient, playerPos);

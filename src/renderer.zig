@@ -133,7 +133,8 @@ pub fn updateViewport(width: u31, height: u31, fov: f32) void {
 	lastWidth = @intFromFloat(@as(f32, @floatFromInt(width))*main.settings.resolutionScale);
 	lastHeight = @intFromFloat(@as(f32, @floatFromInt(height))*main.settings.resolutionScale);
 	lastFov = fov;
-	game.projectionMatrix = Mat4f.perspective(std.math.degreesToRadians(fov), @as(f32, @floatFromInt(lastWidth))/@as(f32, @floatFromInt(lastHeight)), zNear, zFar);
+	game.projectionMatrix = Mat4f.orthographic(5, -5, -5, 5, zNear, zFar);
+	// game.projectionMatrix = Mat4f.perspective(std.math.degreesToRadians(fov), @as(f32, @floatFromInt(lastWidth))/@as(f32, @floatFromInt(lastHeight)), zNear, zFar);
 	worldFrameBuffer.updateSize(lastWidth, lastHeight, c.GL_RGB16F);
 	worldFrameBuffer.unbind();
 }
@@ -148,7 +149,10 @@ pub fn render(playerPosition: Vec3d, deltaTime: f64) void {
 		ambient[2] = @max(0.1, world.ambientLight);
 
 		itemdrop.ItemDisplayManager.update(deltaTime);
-		renderWorld(world, ambient, game.fog.skyColor, playerPosition);
+		const viewMatrix = Mat4f.rotationZ(std.math.pi / 4.0).mul(Mat4f.rotationX(-std.math.pi / 4.0));
+		const forward = vec.xyz(viewMatrix.mulVec(.{0, 1, 0, 0}));
+		renderSun(world, viewMatrix, ambient, game.fog.skyColor, playerPosition - forward*@as(Vec3f, @splat(100)));
+		// renderWorld(world, ambient, game.fog.skyColor, playerPosition - game.camera.direction*@as(Vec3f, @splat(1)));
 		const startTime = std.time.milliTimestamp();
 		mesh_storage.updateMeshes(startTime + maximumMeshTime);
 	} else {
@@ -310,6 +314,153 @@ pub fn renderWorld(world: *World, ambientLight: Vec3f, skyColor: Vec3f, playerPo
 		c.glUniform1f(deferredUniforms.@"fog.fogHigher", 1e10);
 	}
 	c.glUniformMatrix4fv(deferredUniforms.invViewMatrix, 1, c.GL_TRUE, @ptrCast(&game.camera.viewMatrix.transpose()));
+	c.glUniform3i(deferredUniforms.playerPositionInteger, @intFromFloat(@floor(playerPos[0])), @intFromFloat(@floor(playerPos[1])), @intFromFloat(@floor(playerPos[2])));
+	c.glUniform3f(deferredUniforms.playerPositionFraction, @floatCast(@mod(playerPos[0], 1)), @floatCast(@mod(playerPos[1], 1)), @floatCast(@mod(playerPos[2], 1)));
+	c.glUniform1f(deferredUniforms.zNear, zNear);
+	c.glUniform1f(deferredUniforms.zFar, zFar);
+	c.glUniform2f(deferredUniforms.tanXY, 1.0/game.projectionMatrix.rows[0][0], 1.0/game.projectionMatrix.rows[1][2]);
+
+	c.glBindFramebuffer(c.GL_FRAMEBUFFER, activeFrameBuffer);
+
+	c.glBindVertexArray(graphics.draw.rectVAO);
+	c.glDrawArrays(c.GL_TRIANGLE_STRIP, 0, 4);
+
+	c.glBindFramebuffer(c.GL_FRAMEBUFFER, 0);
+
+	entity.ClientEntityManager.renderNames(game.projectionMatrix, playerPos);
+	gpu_performance_measuring.stopQuery();
+}
+
+pub fn renderSun(world: *World, viewMatrix: Mat4f, ambientLight: Vec3f, skyColor: Vec3f, playerPos: Vec3d) void { // MARK: renderWorld()
+	worldFrameBuffer.bind();
+	c.glViewport(0, 0, lastWidth, lastHeight);
+	gpu_performance_measuring.startQuery(.clear);
+	worldFrameBuffer.clear(Vec4f{skyColor[0], skyColor[1], skyColor[2], 1});
+	gpu_performance_measuring.stopQuery();
+	game.camera.updateViewMatrix();
+
+	// Uses FrustumCulling on the chunks.
+	const frustum = Frustum.initOrtho(Vec3f{0, 0, 0}, viewMatrix, 5, -5, -5, 5);
+
+	const time: u32 = @intCast(std.time.milliTimestamp() & std.math.maxInt(u32));
+
+	gpu_performance_measuring.startQuery(.skybox);
+	Skybox.render();
+	gpu_performance_measuring.stopQuery();
+
+	gpu_performance_measuring.startQuery(.animation);
+	blocks.meshes.preProcessAnimationData(time);
+	gpu_performance_measuring.stopQuery();
+
+	// Update the uniforms. The uniforms are needed to render the replacement meshes.
+	chunk_meshing.bindShaderAndUniforms(game.projectionMatrix, ambientLight, playerPos);
+
+	c.glActiveTexture(c.GL_TEXTURE0);
+	blocks.meshes.blockTextureArray.bind();
+	c.glActiveTexture(c.GL_TEXTURE1);
+	blocks.meshes.emissionTextureArray.bind();
+	c.glActiveTexture(c.GL_TEXTURE2);
+	blocks.meshes.reflectivityAndAbsorptionTextureArray.bind();
+	c.glActiveTexture(c.GL_TEXTURE5);
+	blocks.meshes.ditherTexture.bind();
+	reflectionCubeMap.bindTo(4);
+
+	chunk_meshing.quadsDrawn = 0;
+	chunk_meshing.transparentQuadsDrawn = 0;
+	const meshes = mesh_storage.updateAndGetRenderChunks(world.conn, &frustum, playerPos, settings.renderDistance);
+
+	gpu_performance_measuring.startQuery(.chunk_rendering_preparation);
+	const direction = crosshairDirection(viewMatrix, lastFov, lastWidth, lastHeight);
+	MeshSelection.select(playerPos, direction, game.Player.inventory.getItem(game.Player.selectedSlot));
+
+	chunk_meshing.beginRender();
+
+	var chunkLists: [main.settings.highestSupportedLod + 1]main.List(u32) = @splat(main.List(u32).init(main.stackAllocator));
+	defer for(chunkLists) |list| list.deinit();
+	for(meshes) |mesh| {
+		mesh.prepareRendering(&chunkLists);
+	}
+	gpu_performance_measuring.stopQuery();
+	gpu_performance_measuring.startQuery(.chunk_rendering);
+	chunk_meshing.drawChunksIndirect(&chunkLists, game.projectionMatrix, ambientLight, playerPos, false);
+	gpu_performance_measuring.stopQuery();
+
+	gpu_performance_measuring.startQuery(.entity_rendering);
+	entity.ClientEntityManager.render(game.projectionMatrix, ambientLight, playerPos);
+
+	itemdrop.ItemDropRenderer.renderItemDrops(game.projectionMatrix, ambientLight, playerPos);
+	gpu_performance_measuring.stopQuery();
+
+	gpu_performance_measuring.startQuery(.block_entity_rendering);
+	main.block_entity.renderAll(game.projectionMatrix, ambientLight, playerPos);
+	gpu_performance_measuring.stopQuery();
+
+	gpu_performance_measuring.startQuery(.particle_rendering);
+	particles.ParticleSystem.render(game.projectionMatrix, viewMatrix, ambientLight);
+	gpu_performance_measuring.stopQuery();
+
+	// Rebind block textures back to their original slots
+	c.glActiveTexture(c.GL_TEXTURE0);
+	blocks.meshes.blockTextureArray.bind();
+	c.glActiveTexture(c.GL_TEXTURE1);
+	blocks.meshes.emissionTextureArray.bind();
+
+	MeshSelection.render(game.projectionMatrix, viewMatrix, playerPos);
+
+	// Render transparent chunk meshes:
+	worldFrameBuffer.bindDepthTexture(c.GL_TEXTURE5);
+
+	gpu_performance_measuring.startQuery(.transparent_rendering_preparation);
+	c.glTextureBarrier();
+
+	{
+		for(&chunkLists) |*list| list.clearRetainingCapacity();
+		var i: usize = meshes.len;
+		while(true) {
+			if(i == 0) break;
+			i -= 1;
+			meshes[i].prepareTransparentRendering(playerPos, &chunkLists);
+		}
+		gpu_performance_measuring.stopQuery();
+		gpu_performance_measuring.startQuery(.transparent_rendering);
+		chunk_meshing.drawChunksIndirect(&chunkLists, game.projectionMatrix, ambientLight, playerPos, true);
+		gpu_performance_measuring.stopQuery();
+	}
+
+	c.glDepthRange(0, 0.001);
+	itemdrop.ItemDropRenderer.renderDisplayItems(ambientLight, playerPos);
+	c.glDepthRange(0.001, 1);
+
+	chunk_meshing.endRender();
+
+	worldFrameBuffer.bindTexture(c.GL_TEXTURE3);
+
+	const playerBlock = mesh_storage.getBlockFromAnyLodFromRenderThread(@intFromFloat(@floor(playerPos[0])), @intFromFloat(@floor(playerPos[1])), @intFromFloat(@floor(playerPos[2])));
+
+	if(settings.bloom) {
+		Bloom.render(lastWidth, lastHeight, playerBlock, playerPos, viewMatrix);
+	} else {
+		Bloom.bindReplacementImage();
+	}
+	gpu_performance_measuring.startQuery(.final_copy);
+	if(activeFrameBuffer == 0) c.glViewport(0, 0, main.Window.width, main.Window.height);
+	worldFrameBuffer.bindTexture(c.GL_TEXTURE3);
+	worldFrameBuffer.bindDepthTexture(c.GL_TEXTURE4);
+	worldFrameBuffer.unbind();
+	deferredRenderPassPipeline.bind(null);
+	if(!blocks.meshes.hasFog(playerBlock)) {
+		c.glUniform3fv(deferredUniforms.@"fog.color", 1, @ptrCast(&game.fog.fogColor));
+		c.glUniform1f(deferredUniforms.@"fog.density", game.fog.density);
+		c.glUniform1f(deferredUniforms.@"fog.fogLower", game.fog.fogLower);
+		c.glUniform1f(deferredUniforms.@"fog.fogHigher", game.fog.fogHigher);
+	} else {
+		const fogColor = blocks.meshes.fogColor(playerBlock);
+		c.glUniform3f(deferredUniforms.@"fog.color", @as(f32, @floatFromInt(fogColor >> 16 & 255))/255.0, @as(f32, @floatFromInt(fogColor >> 8 & 255))/255.0, @as(f32, @floatFromInt(fogColor >> 0 & 255))/255.0);
+		c.glUniform1f(deferredUniforms.@"fog.density", blocks.meshes.fogDensity(playerBlock));
+		c.glUniform1f(deferredUniforms.@"fog.fogLower", 1e10);
+		c.glUniform1f(deferredUniforms.@"fog.fogHigher", 1e10);
+	}
+	c.glUniformMatrix4fv(deferredUniforms.invViewMatrix, 1, c.GL_TRUE, @ptrCast(&viewMatrix.transpose()));
 	c.glUniform3i(deferredUniforms.playerPositionInteger, @intFromFloat(@floor(playerPos[0])), @intFromFloat(@floor(playerPos[1])), @intFromFloat(@floor(playerPos[2])));
 	c.glUniform3f(deferredUniforms.playerPositionFraction, @floatCast(@mod(playerPos[0], 1)), @floatCast(@mod(playerPos[1], 1)), @floatCast(@mod(playerPos[2], 1)));
 	c.glUniform1f(deferredUniforms.zNear, zNear);
@@ -849,6 +1000,19 @@ pub const Frustum = struct { // MARK: Frustum
 		self.planes[1] = Plane{.pos = cameraPos, .norm = vec.cross(cameraDir - cameraRight*@as(Vec3f, @splat(halfHSide)), cameraUp)}; // left
 		self.planes[2] = Plane{.pos = cameraPos, .norm = vec.cross(cameraRight, cameraDir - cameraUp*@as(Vec3f, @splat(halfVSide)))}; // top
 		self.planes[3] = Plane{.pos = cameraPos, .norm = vec.cross(cameraDir + cameraUp*@as(Vec3f, @splat(halfVSide)), cameraRight)}; // bottom
+		return self;
+	}
+
+	pub fn initOrtho(cameraPos: Vec3f, rotationMatrix: Mat4f, top: f32, bottom: f32, left: f32, right: f32) Frustum {
+		const invRotationMatrix = rotationMatrix.transpose();
+		const cameraUp = vec.xyz(invRotationMatrix.mulVec(Vec4f{0, 0, 1, 0}));
+		const cameraRight = vec.xyz(invRotationMatrix.mulVec(Vec4f{1, 0, 0, 0}));
+
+		var self: Frustum = undefined;
+		self.planes[0] = Plane{.pos = cameraPos + cameraRight * @as(Vec3f, @splat(right)), .norm = -cameraRight};
+		self.planes[1] = Plane{.pos = cameraPos + cameraRight * @as(Vec3f, @splat(left)), .norm = cameraRight};
+		self.planes[2] = Plane{.pos = cameraPos + cameraUp * @as(Vec3f, @splat(top)), .norm = -cameraUp};
+		self.planes[3] = Plane{.pos = cameraPos + cameraUp * @as(Vec3f, @splat(bottom)), .norm = cameraUp};
 		return self;
 	}
 
