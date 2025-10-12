@@ -586,54 +586,6 @@ pub fn main() void { // MARK: main()
 
 	const file = std.fs.cwd().openFile("mods/Modding.wasm", .{}) catch unreachable;
 	defer file.close();
-	
-	testMod = wasm.WasmInstance.init(globalAllocator, file) catch unreachable;
-	defer testMod.deinit(globalAllocator);
-
-	var argsData: [6]?*wasm.c.wasm_valtype_t = .{
-		wasm.c.wasm_valtype_new_i32(),
-		wasm.c.wasm_valtype_new_i32(),
-		wasm.c.wasm_valtype_new_i32(),
-		wasm.c.wasm_valtype_new_i32(),
-		wasm.c.wasm_valtype_new_i32(),
-		wasm.c.wasm_valtype_new_i32(),
-	};
-	var args: wasm.c.wasm_valtype_vec_t = undefined;
-	wasm.c.wasm_valtype_vec_new(&args, 6, &argsData);
-	var returns: wasm.c.wasm_valtype_vec_t = undefined;
-	wasm.c.wasm_valtype_vec_new_empty(&returns);
-	const registercommand_func_type = wasm.c.wasm_functype_new(&args, &returns);
-	const registercommand_func = wasm.c.wasm_func_new_with_env(wasm.store, registercommand_func_type, &server.command.registerCommandWasm, &testMod.env, null);
-	defer wasm.c.wasm_func_delete(registercommand_func);
-	defer wasm.c.wasm_functype_delete(registercommand_func_type);
-
-	const sendmessage_func_type = wasm.c.wasm_functype_new_3_0(
-		wasm.c.wasm_valtype_new_i32(),
-		wasm.c.wasm_valtype_new_i32(),
-		wasm.c.wasm_valtype_new_i32(),
-	);
-	const sendmessage_func = wasm.c.wasm_func_new_with_env(wasm.store, sendmessage_func_type, &server.sendRawMessageWasm, &testMod.env, null);
-	defer wasm.c.wasm_func_delete(sendmessage_func);
-	defer wasm.c.wasm_functype_delete(sendmessage_func_type);
-
-	const addhealthserver_func_type = wasm.c.wasm_functype_new_3_0(
-		wasm.c.wasm_valtype_new_i32(),
-		wasm.c.wasm_valtype_new_f32(),
-		wasm.c.wasm_valtype_new_i32(),
-	);
-	const addhealthserver_func = wasm.c.wasm_func_new_with_env(wasm.store, addhealthserver_func_type, &items.Inventory.Sync.addHealthWasm, &testMod.env, null);
-	defer wasm.c.wasm_func_delete(addhealthserver_func);
-	defer wasm.c.wasm_functype_delete(addhealthserver_func_type);
-
-	var importArr: [3]?*wasm.c.wasm_extern_t = undefined;
-	importArr[testMod.getImport("sendMessageUnformatted").?] = wasm.c.wasm_func_as_extern(sendmessage_func);
-	importArr[testMod.getImport("registerCommandImpl").?] = wasm.c.wasm_func_as_extern(registercommand_func);
-	importArr[testMod.getImport("addHealthImpl").?] = wasm.c.wasm_func_as_extern(addhealthserver_func);
-	const imports: wasm.c.wasm_extern_vec_t = .{.data = &importArr, .size = importArr.len};
-	testMod.instantiate(imports) catch |err| {
-		std.log.err("Failed to instantiate module: {}\n", .{err});
-		return;
-	};
 
 	modding.init();
 	defer modding.deinit();

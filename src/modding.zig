@@ -17,7 +17,35 @@ pub fn init() void {
 		std.log.err("Failed to iterate mods folder: {}\n", .{err});
 		return;
 	}) |entry| {
-		std.debug.print("{s}\n", .{entry.name});
+		const file = modDir.openFile(entry) catch |err| {
+			std.log.err("Failed to open mod {s}: {}\n", .{entry.name, err});
+			continue;
+		};
+		defer file.close();
+		const mod = wasm.WasmInstance.init(main.globalAllocator, file) catch unreachable;
+		defer mod.deinit(main.globalAllocator);
+		mod.addImport("registerCommandImpl", &[_]?*c.wasm_valtype_t{
+			c.wasm_valtype_new_i32(),
+			c.wasm_valtype_new_i32(),
+			c.wasm_valtype_new_i32(),
+			c.wasm_valtype_new_i32(),
+			c.wasm_valtype_new_i32(),
+			c.wasm_valtype_new_i32(),
+		}, &.{}, &main.server.command.registerCommandWasm);
+		mod.addImport("sendMessageUnformatted", &[_]?*c.wasm_valtype_t{
+			c.wasm_valtype_new_i32(),
+			c.wasm_valtype_new_i32(),
+			c.wasm_valtype_new_i32(),
+		}, &.{}, &main.server.sendRawMessageWasm);
+		mod.addImport("addHealthImpl", &[_]?*c.wasm_valtype_t{
+			c.wasm_valtype_new_i32(),
+			c.wasm_valtype_new_f32(),
+			c.wasm_valtype_new_i32(),
+		}, &.{}, &main.items.Inventory.Sync.addHealthWasm);
+		mod.instantiate() catch |err| {
+			std.log.err("Failed to instantiate module: {}\n", .{err});
+			return;
+		};
 	}
 }
 

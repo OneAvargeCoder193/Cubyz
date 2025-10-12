@@ -29,6 +29,7 @@ pub const WasmInstance = struct {
 	memory: ?*c.wasm_memory_t,
 	currentSide: main.utils.Side,
 	env: Env,
+	importList: []?*c.wasm_extern_t,
 
 	pub const Env = struct {
 		instance: *WasmInstance,
@@ -48,6 +49,7 @@ pub const WasmInstance = struct {
 		};
 		c.wasm_module_exports(out.module, &out.exportTypes);
 		c.wasm_module_imports(out.module, &out.importTypes);
+		out.importList = main.globalAllocator.alloc(?*c.wasm_extern_t, out.importTypes.size);
 		return out;
 	}
 
@@ -59,15 +61,31 @@ pub const WasmInstance = struct {
 		allocator.destroy(self);
 	}
 
-	pub fn instantiate(self: *WasmInstance, imports: c.wasm_extern_vec_t) !void {
+	pub fn instantiate(self: *WasmInstance) !void {
+		var imports: c.wasm_extern_vec_t = undefined;
+		c.wasm_extern_vec_new(&imports, self.importList.len, self.importList.ptr);
+		defer c.wasm_extern_vec_delete(imports);
 		self.instance = c.wasm_instance_new(store, self.module, &imports, null) orelse {
 			const err = main.stackAllocator.alloc(u8, @intCast(c.wasmer_last_error_length()));
 			_ = c.wasmer_last_error_message(err.ptr, @intCast(err.len));
 			std.debug.print("{s}\n", .{err});
 			return error.WasmInstanceError;
 		};
+		main.globalAllocator.free(self.importList);
 		c.wasm_instance_exports(self.instance, &self.exports);
 		self.memory = c.wasm_extern_as_memory(self.getExport("memory"));
+	}
+
+	fn addImport(self: *WasmInstance, name: []const u8, args: []c.wasm_valtype_t, rets: []c.wasm_valtype_t, func: c.wasm_func_callback_with_env_t) !void {
+		var argVec: c.wasm_valtype_vec_t = undefined;
+		c.wasm_valtype_vec_new(&argVec, args.len, args.ptr);
+		var retVec: c.wasm_valtype_vec_t = undefined;
+		c.wasm_valtype_vec_new(&retVec, rets.len, rets.ptr);
+		const func_type = c.wasm_functype_new(&argVec, &retVec);
+		const function = c.wasm_func_new_with_env(store, func_type, func, &self.env, null);
+		defer c.wasm_func_delete(function);
+		defer c.wasm_functype_delete(func_type);
+		self.importList[self.getImport(name) orelse return error.ImportNotFound] = c.wasm_func_as_extern(function);
 	}
 
 	pub fn getImport(self: *WasmInstance, name: []const u8) ?usize {
