@@ -27,7 +27,7 @@ pub const WasmInstance = struct {
 	importTypes: c.wasm_importtype_vec_t,
 	exports: c.wasm_extern_vec_t,
 	memory: ?*c.wasm_memory_t,
-
+	currentSide: main.utils.Side,
 	env: Env,
 
 	pub const Env = struct {
@@ -67,7 +67,7 @@ pub const WasmInstance = struct {
 			return error.WasmInstanceError;
 		};
 		c.wasm_instance_exports(self.instance, &self.exports);
-		self.memory = c.wasm_extern_as_memory(self.getExtern("memory"));
+		self.memory = c.wasm_extern_as_memory(self.getExport("memory"));
 	}
 
 	pub fn getImport(self: *WasmInstance, name: []const u8) ?usize {
@@ -82,7 +82,7 @@ pub const WasmInstance = struct {
 		return null;
 	}
 
-	pub fn getExtern(self: *WasmInstance, name: []const u8) ?*c.wasm_extern_t {
+	pub fn getExport(self: *WasmInstance, name: []const u8) ?*c.wasm_extern_t {
 		for(0..self.exports.size) |i| {
 			const exportType = self.exportTypes.data[i];
 			var exportNameVec = c.wasm_exporttype_name(exportType).*;
@@ -95,7 +95,7 @@ pub const WasmInstance = struct {
 	}
 
 	pub fn invoke(self: *WasmInstance, name: []const u8, args: []c.wasm_val_t, ret: []c.wasm_val_t) !void {
-		const externValue = self.getExtern(name) orelse return error.FunctionDoesNotExist;
+		const externValue = self.getExport(name) orelse return error.FunctionDoesNotExist;
 		const func = c.wasm_extern_as_func(externValue) orelse return error.ExportNotFunction;
 		var argVec: c.wasm_val_vec_t = .{.data = args.ptr, .size = args.len};
 		var retVec: c.wasm_val_vec_t = .{.data = ret.ptr, .size = ret.len};

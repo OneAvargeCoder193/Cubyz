@@ -60,6 +60,7 @@ pub fn execute(msg: []const u8, source: *User) void {
 					.{.kind = main.wasm.c.WASM_I32, .of = .{.@"i32" = @intCast(source.id)}},
 				};
 				var retList = [0]main.wasm.c.wasm_val_t{};
+				instance.currentSide = .server;
 				instance.invoke("executeCommand", &argList, &retList) catch unreachable;
 			}
 		}

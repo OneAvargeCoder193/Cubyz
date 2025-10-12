@@ -20,8 +20,7 @@ const BaseItemIndex = main.items.BaseItemIndex;
 const ToolTypeIndex = main.items.ToolTypeIndex;
 
 const Gamemode = main.game.Gamemode;
-
-const Side = enum {client, server};
+const Side = utils.Side;
 
 pub const InventoryId = enum(u32) {_};
 
@@ -505,6 +504,15 @@ pub const Sync = struct { // MARK: Sync
 		} else {
 			Sync.ServerSide.executeCommand(.{.addHealth = .{.target = userId, .health = health, .cause = cause}}, null);
 		}
+	}
+
+	pub fn addHealthWasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wasm_val_vec_t, _: [*c]main.wasm.c.wasm_val_vec_t) callconv(.c) ?*main.wasm.c.wasm_trap_t {
+		const instance = @as(*main.wasm.WasmInstance.Env, @ptrCast(@alignCast(env.?))).instance;
+		const userId: u32 = @intCast(args.*.data[0].of.i32);
+		const amount: f32 = args.*.data[1].of.f32;
+		const kind: main.game.DamageType = @enumFromInt(args.*.data[2].of.i32);
+		addHealth(amount, kind, instance.currentSide, userId);
+		return null;
 	}
 
 	pub fn getInventory(id: InventoryId, side: Side, user: ?*main.server.User) ?Inventory {
