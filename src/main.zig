@@ -29,6 +29,7 @@ const tag = @import("tag.zig");
 pub const Tag = tag.Tag;
 pub const utils = @import("utils.zig");
 pub const vec = @import("vec.zig");
+pub const wasm = @import("wasm.zig");
 pub const ZonElement = @import("zon.zig").ZonElement;
 
 pub const Window = @import("graphics/Window.zig");
@@ -574,6 +575,21 @@ pub fn main() void { // MARK: main()
 	} else |_| {}
 
 	std.log.info("Starting game client with version {s}", .{settings.version.version});
+
+	const wasmContext = wasm.WasmContext.init() catch unreachable;
+	defer wasmContext.deinit();
+	const file = std.fs.cwd().openFile("Modding.wasm", .{}) catch unreachable;
+	defer file.close();
+	const imports: wasm.c.wasm_extern_vec_t = .{.data = null, .size = 0};
+	var wasmInstance = wasm.WasmInstance.init(wasmContext, file, imports) catch unreachable;
+	defer wasmInstance.deinit();
+	var args = [2]wasm.c.wasm_val_t {
+		.{.kind = wasm.c.WASM_I32, .of = .{.@"i32" = 3}},
+		.{.kind = wasm.c.WASM_I32, .of = .{.@"i32" = 4}},
+	};
+	var ret: [1]wasm.c.wasm_val_t = undefined;
+	wasmInstance.invoke("add", args[0..], &ret) catch unreachable;
+	std.debug.print("{d}\n", .{ret[0].of.i32});
 
 	gui.initWindowList();
 	defer gui.deinitWindowList();
