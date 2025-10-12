@@ -6,7 +6,7 @@ const User = main.server.User;
 pub const Command = struct {
 	exec: union(enum) {
 		func: *const fn(args: []const u8, source: *User) void,
-		mod: main.wasm.WasmInstance,
+		mod: *main.wasm.WasmInstance,
 	},
 	name: []const u8,
 	description: []const u8,
@@ -68,8 +68,8 @@ pub fn execute(msg: []const u8, source: *User) void {
 	}
 }
 
-pub fn registerCommandWasm(args: [*c]const main.wasm.c.wasm_val_vec_t, _: [*c]main.wasm.c.wasm_val_vec_t, env: *anyopaque) callconv(.c) ?*main.wasm.c.wasm_trap_t {
-	const instance = @as(*main.wasm.WasmInstance.Env, @ptrCast(env)).instance;
+pub fn registerCommandWasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wasm_val_vec_t, _: [*c]main.wasm.c.wasm_val_vec_t) callconv(.c) ?*main.wasm.c.wasm_trap_t {
+	const instance = @as(*main.wasm.WasmInstance.Env, @ptrCast(@alignCast(env.?))).instance;
 	const nameStart: usize = @intCast(args.*.data[0].of.i32);
 	const nameLen: usize = @intCast(args.*.data[1].of.i32);
 	const descriptionStart: usize = @intCast(args.*.data[2].of.i32);

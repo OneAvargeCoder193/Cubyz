@@ -24,21 +24,19 @@ pub const WasmInstance = struct {
 	module: ?*c.wasm_module_t,
 	instance: *c.wasm_instance_t,
 	exportTypes: c.wasm_exporttype_vec_t,
+	importTypes: c.wasm_importtype_vec_t,
 	exports: c.wasm_extern_vec_t,
 	memory: ?*c.wasm_memory_t,
+
+	env: Env,
 
 	pub const Env = struct {
 		instance: *WasmInstance,
 	};
 
-	pub fn init(file: std.fs.File, imports: c.wasm_extern_vec_t) !WasmInstance {
-		var out: WasmInstance = .{
-			.module = undefined,
-			.instance = undefined,
-			.exportTypes = undefined,
-			.exports = undefined,
-			.memory = undefined,
-		};
+	pub fn init(allocator: main.heap.NeverFailingAllocator, file: std.fs.File) !*WasmInstance {
+		var out: *WasmInstance = allocator.create(WasmInstance);
+		out.env.instance = out;
 		const data = try file.readToEndAlloc(main.stackAllocator.allocator, std.math.maxInt(usize));
 		defer main.stackAllocator.free(data);
 		var byteVec: c.wasm_byte_vec_t = .{.data = data.ptr, .size = data.len};
@@ -48,23 +46,40 @@ pub const WasmInstance = struct {
 			std.debug.print("{s}\n", .{err});
 			return error.WasmModuleError;
 		};
-		out.instance = c.wasm_instance_new(store, out.module, &imports, null) orelse {
+		c.wasm_module_exports(out.module, &out.exportTypes);
+		c.wasm_module_imports(out.module, &out.importTypes);
+		return out;
+	}
+
+	pub fn deinit(self: *WasmInstance, allocator: main.heap.NeverFailingAllocator) void {
+		c.wasm_module_delete(self.module);
+		c.wasm_instance_delete(self.instance);
+		c.wasm_exporttype_vec_delete(&self.exportTypes);
+		c.wasm_extern_vec_delete(&self.exports);
+		allocator.destroy(self);
+	}
+
+	pub fn instantiate(self: *WasmInstance, imports: c.wasm_extern_vec_t) !void {
+		self.instance = c.wasm_instance_new(store, self.module, &imports, null) orelse {
 			const err = main.stackAllocator.alloc(u8, @intCast(c.wasmer_last_error_length()));
 			_ = c.wasmer_last_error_message(err.ptr, @intCast(err.len));
 			std.debug.print("{s}\n", .{err});
 			return error.WasmInstanceError;
 		};
-		c.wasm_module_exports(out.module, &out.exportTypes);
-		c.wasm_instance_exports(out.instance, &out.exports);
-		out.memory = c.wasm_extern_as_memory(out.getExtern("memory"));
-		return out;
+		c.wasm_instance_exports(self.instance, &self.exports);
+		self.memory = c.wasm_extern_as_memory(self.getExtern("memory"));
 	}
 
-	pub fn deinit(self: *WasmInstance) void {
-		c.wasm_module_delete(self.module);
-		c.wasm_instance_delete(self.instance);
-		c.wasm_exporttype_vec_delete(&self.exportTypes);
-		c.wasm_extern_vec_delete(&self.exports);
+	pub fn getImport(self: *WasmInstance, name: []const u8) ?usize {
+		for(0..self.importTypes.size) |i| {
+			const importType = self.importTypes.data[i];
+			var importNameVec = c.wasm_importtype_name(importType).*;
+			const importName = importNameVec.data[0..importNameVec.size];
+			if(std.mem.eql(u8, name, importName)) {
+				return i;
+			}
+		}
+		return null;
 	}
 
 	pub fn getExtern(self: *WasmInstance, name: []const u8) ?*c.wasm_extern_t {
