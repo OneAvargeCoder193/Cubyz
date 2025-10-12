@@ -585,6 +585,9 @@ pub fn main() void { // MARK: main()
 	const file = std.fs.cwd().openFile("Modding.wasm", .{}) catch unreachable;
 	defer file.close();
 
+	const env = globalAllocator.create(wasm.WasmInstance.Env);
+	defer globalAllocator.free(env);
+
 	var argsData: [6]?*wasm.c.wasm_valtype_t = .{
 		wasm.c.wasm_valtype_new_i32(),
 		wasm.c.wasm_valtype_new_i32(),
@@ -598,7 +601,7 @@ pub fn main() void { // MARK: main()
 	var returns: wasm.c.wasm_valtype_vec_t = undefined;
 	wasm.c.wasm_valtype_vec_new_empty(&returns);
 	const registercommand_func_type = wasm.c.wasm_functype_new(&args, &returns);
-	const registercommand_func = wasm.c.wasm_func_new(wasm.store, registercommand_func_type, &server.command.registerCommandWasm);
+	const registercommand_func = wasm.c.wasm_func_new_with_env(wasm.store, registercommand_func_type, &server.command.registerCommandWasm, env, null);
 	defer wasm.c.wasm_func_delete(registercommand_func);
 	defer wasm.c.wasm_functype_delete(registercommand_func_type);
 
@@ -607,7 +610,7 @@ pub fn main() void { // MARK: main()
 		wasm.c.wasm_valtype_new_i32(),
 		wasm.c.wasm_valtype_new_i32(),
 	);
-	const sendmessage_func = wasm.c.wasm_func_new(wasm.store, sendmessage_func_type, &server.sendRawMessageWasm);
+	const sendmessage_func = wasm.c.wasm_func_new_with_env(wasm.store, sendmessage_func_type, &server.sendRawMessageWasm, env, null);
 	defer wasm.c.wasm_func_delete(sendmessage_func);
 	defer wasm.c.wasm_functype_delete(sendmessage_func_type);
 
@@ -618,6 +621,7 @@ pub fn main() void { // MARK: main()
 	const imports: wasm.c.wasm_extern_vec_t = .{.data = &importArr, .size = importArr.len};
 	testMod = wasm.WasmInstance.init(file, imports) catch unreachable;
 	defer testMod.deinit();
+	env.instance = &testMod;
 
 	gui.initWindowList();
 	defer gui.deinitWindowList();

@@ -27,6 +27,10 @@ pub const WasmInstance = struct {
 	exports: c.wasm_extern_vec_t,
 	memory: ?*c.wasm_memory_t,
 
+	pub const Env = struct {
+		instance: *WasmInstance,
+	};
+
 	pub fn init(file: std.fs.File, imports: c.wasm_extern_vec_t) !WasmInstance {
 		var out: WasmInstance = .{
 			.module = undefined,

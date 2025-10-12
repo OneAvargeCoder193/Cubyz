@@ -287,10 +287,11 @@ pub const User = struct { // MARK: User
 	}
 };
 
-pub fn sendRawMessageWasm(args: [*c]const main.wasm.c.wasm_val_vec_t, _: [*c]main.wasm.c.wasm_val_vec_t) callconv(.c) ?*main.wasm.c.wasm_trap_t {
+pub fn sendRawMessageWasm(args: [*c]const main.wasm.c.wasm_val_vec_t, _: [*c]main.wasm.c.wasm_val_vec_t, env: *anyopaque) callconv(.c) ?*main.wasm.c.wasm_trap_t {
+	const instance = @as(*main.wasm.WasmInstance.Env, @ptrCast(env)).instance;
 	const messageStart: usize = @intCast(args.*.data[1].of.i32);
 	const messageLen: usize = @intCast(args.*.data[2].of.i32);
-	const memory = main.wasm.c.wasm_memory_data(main.testMod.memory);
+	const memory = main.wasm.c.wasm_memory_data(instance.memory);
 	const message = main.stackAllocator.dupe(u8, memory[messageStart..messageStart + messageLen]);
 	std.debug.print("TESTING TESTING 123 MESSAGE: {s}\n", .{message});
 	defer main.stackAllocator.free(message);
