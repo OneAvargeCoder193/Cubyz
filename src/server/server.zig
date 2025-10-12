@@ -293,7 +293,6 @@ pub fn sendRawMessageWasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wasm_val
 	const messageLen: usize = @intCast(args.*.data[2].of.i32);
 	const memory = main.wasm.c.wasm_memory_data(instance.memory);
 	const message = main.stackAllocator.dupe(u8, memory[messageStart..messageStart + messageLen]);
-	std.debug.print("TESTING TESTING 123 MESSAGE: {s}\n", .{message});
 	defer main.stackAllocator.free(message);
 	const userId: u32 = @intCast(args.*.data[0].of.i32);
 	const userList = getUserListAndIncreaseRefCount(main.stackAllocator);
