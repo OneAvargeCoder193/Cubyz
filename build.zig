@@ -15,6 +15,14 @@ fn linkLibraries(b: *std.Build, exe: *std.Build.Step.Compile, useLocalDeps: bool
 	exe.linkLibC();
 	exe.linkLibCpp();
 
+	const wasmer_dep = b.dependency("wasmer", .{});
+	const wasmer_path = wasmer_dep.path(".");
+	exe.addIncludePath(wasmer_path.path(b, "include"));
+	exe.addLibraryPath(wasmer_path.path(b, "lib"));
+	exe.root_module.linkSystemLibrary("wasmer", .{
+		.preferred_link_mode = .static,
+	});
+
 	const depsLib = b.fmt("cubyz_deps_{s}-{s}-{s}", .{@tagName(t.cpu.arch), @tagName(t.os.tag), switch(t.os.tag) {
 		.linux => "musl",
 		.macos => "none",
@@ -56,6 +64,8 @@ fn linkLibraries(b: *std.Build, exe: *std.Build.Step.Compile, useLocalDeps: bool
 		exe.linkSystemLibrary("gdi32");
 		exe.linkSystemLibrary("opengl32");
 		exe.linkSystemLibrary("ws2_32");
+		exe.linkSystemLibrary("bcrypt");
+		exe.linkSystemLibrary("userenv");
 	} else if(t.os.tag == .macos) {
 		exe.linkFramework("AudioUnit");
 		exe.linkFramework("AudioToolbox");

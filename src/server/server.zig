@@ -25,7 +25,7 @@ pub const terrain = @import("terrain/terrain.zig");
 pub const Entity = @import("Entity.zig");
 pub const storage = @import("storage.zig");
 
-const command = @import("command/_command.zig");
+pub const command = @import("command/_command.zig");
 
 pub const WorldEditData = struct {
 	const maxWorldEditHistoryCapacity: u32 = 1024;
@@ -286,6 +286,24 @@ pub const User = struct { // MARK: User
 		main.network.Protocols.chat.send(self.conn, msg);
 	}
 };
+
+pub fn sendRawMessageWasm(args: [*c]const main.wasm.c.wasm_val_vec_t, _: [*c]main.wasm.c.wasm_val_vec_t) callconv(.c) ?*main.wasm.c.wasm_trap_t {
+	const messageStart: usize = @intCast(args.*.data[1].of.i32);
+	const messageLen: usize = @intCast(args.*.data[2].of.i32);
+	const memory = main.wasm.c.wasm_memory_data(main.testMod.memory);
+	const message = main.stackAllocator.dupe(u8, memory[messageStart..messageStart + messageLen]);
+	std.debug.print("TESTING TESTING 123 MESSAGE: {s}\n", .{message});
+	defer main.stackAllocator.free(message);
+	const userId: u32 = @intCast(args.*.data[0].of.i32);
+	const userList = getUserListAndIncreaseRefCount(main.stackAllocator);
+	defer freeUserListAndDecreaseRefCount(main.stackAllocator, userList);
+	for(userList) |user| {
+		if(user.id == userId) {
+			user.sendRawMessage(message);
+		}
+	}
+	return null;
+}
 
 pub const updatesPerSec: u32 = 20;
 const updateNanoTime: u32 = 1000000000/20;

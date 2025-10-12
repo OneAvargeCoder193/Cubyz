@@ -542,6 +542,8 @@ pub fn convertJsonToZon(jsonPath: []const u8) void { // TODO: Remove after #480
 	};
 }
 
+pub var testMod: wasm.WasmInstance = undefined;
+
 pub fn main() void { // MARK: main()
 	defer if(global_gpa.deinit() == .leak) {
 		std.log.err("Memory leak", .{});
@@ -576,20 +578,46 @@ pub fn main() void { // MARK: main()
 
 	std.log.info("Starting game client with version {s}", .{settings.version.version});
 
-	const wasmContext = wasm.WasmContext.init() catch unreachable;
-	defer wasmContext.deinit();
+	wasm.init() catch |err| {
+		std.log.err("Failed to initialize wasm: {s}\n", .{@errorName(err)});
+	};
+	defer wasm.deinit();
 	const file = std.fs.cwd().openFile("Modding.wasm", .{}) catch unreachable;
 	defer file.close();
-	const imports: wasm.c.wasm_extern_vec_t = .{.data = null, .size = 0};
-	var wasmInstance = wasm.WasmInstance.init(wasmContext, file, imports) catch unreachable;
-	defer wasmInstance.deinit();
-	var args = [2]wasm.c.wasm_val_t {
-		.{.kind = wasm.c.WASM_I32, .of = .{.@"i32" = 3}},
-		.{.kind = wasm.c.WASM_I32, .of = .{.@"i32" = 4}},
+
+	var argsData: [6]?*wasm.c.wasm_valtype_t = .{
+		wasm.c.wasm_valtype_new_i32(),
+		wasm.c.wasm_valtype_new_i32(),
+		wasm.c.wasm_valtype_new_i32(),
+		wasm.c.wasm_valtype_new_i32(),
+		wasm.c.wasm_valtype_new_i32(),
+		wasm.c.wasm_valtype_new_i32(),
 	};
-	var ret: [1]wasm.c.wasm_val_t = undefined;
-	wasmInstance.invoke("add", args[0..], &ret) catch unreachable;
-	std.debug.print("{d}\n", .{ret[0].of.i32});
+	var args: wasm.c.wasm_valtype_vec_t = undefined;
+	wasm.c.wasm_valtype_vec_new(&args, 6, &argsData);
+	var returns: wasm.c.wasm_valtype_vec_t = undefined;
+	wasm.c.wasm_valtype_vec_new_empty(&returns);
+	const registercommand_func_type = wasm.c.wasm_functype_new(&args, &returns);
+	const registercommand_func = wasm.c.wasm_func_new(wasm.store, registercommand_func_type, &server.command.registerCommandWasm);
+	defer wasm.c.wasm_func_delete(registercommand_func);
+	defer wasm.c.wasm_functype_delete(registercommand_func_type);
+
+	const sendmessage_func_type = wasm.c.wasm_functype_new_3_0(
+		wasm.c.wasm_valtype_new_i32(),
+		wasm.c.wasm_valtype_new_i32(),
+		wasm.c.wasm_valtype_new_i32(),
+	);
+	const sendmessage_func = wasm.c.wasm_func_new(wasm.store, sendmessage_func_type, &server.sendRawMessageWasm);
+	defer wasm.c.wasm_func_delete(sendmessage_func);
+	defer wasm.c.wasm_functype_delete(sendmessage_func_type);
+
+	var importArr: [2]?*wasm.c.wasm_extern_t = .{
+		wasm.c.wasm_func_as_extern(registercommand_func),
+		wasm.c.wasm_func_as_extern(sendmessage_func),
+	};
+	const imports: wasm.c.wasm_extern_vec_t = .{.data = &importArr, .size = importArr.len};
+	testMod = wasm.WasmInstance.init(file, imports) catch unreachable;
+	defer testMod.deinit();
 
 	gui.initWindowList();
 	defer gui.deinitWindowList();
