@@ -584,9 +584,6 @@ pub fn main() void { // MARK: main()
 	};
 	defer wasm.deinit();
 
-	const file = std.fs.cwd().openFile("mods/Modding.wasm", .{}) catch unreachable;
-	defer file.close();
-
 	modding.init();
 	defer modding.deinit();
 

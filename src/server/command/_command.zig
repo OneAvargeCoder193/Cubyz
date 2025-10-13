@@ -27,7 +27,9 @@ pub fn init() void {
 		}) catch unreachable;
 		std.log.debug("Registered command: '/{s}'", .{decl.name});
 	}
-	main.testMod.invoke("registerCommands", &.{}, &.{}) catch {};
+	for(main.modding.mods.items) |mod| {
+		mod.invoke("registerCommands", &.{}, &.{}) catch {};
+	}
 }
 
 pub fn deinit() void {
