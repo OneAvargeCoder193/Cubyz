@@ -13,5 +13,5 @@ void main() {
 	if(texColor.a < 0.5) discard;
 
 	const vec3 pixelLight = max(light, texture(emissionTextureSampler, textureCoords).r*4);
-	fragColor = texColor*vec4(pixelLight, 1);
+	fragColor = texColor;//*vec4(pixelLight, 1);
 }

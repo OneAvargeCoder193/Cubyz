@@ -1,0 +1,42 @@
+#version 460
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct ParticleData {
+	vec3 pos;
+	float rotation;
+	float lifeRatio;
+	uint light;
+	uint type;
+};
+
+layout(std430, binding = 13) restrict readonly buffer ParticleIn
+{
+	ParticleData particleIn[];
+};
+
+layout(std430, binding = 14) restrict writeonly buffer ParticleOut
+{
+	ParticleData particleOut[];
+};
+
+layout(binding = 0) uniform atomic_uint drawCount;
+
+layout(location = 0) uniform uint maxCapacity;
+layout(location = 1) uniform float deltaTime;
+
+void main() {
+	uint id = gl_GlobalInvocationID.x;
+	if(id >= maxCapacity) return;
+
+	ParticleData p = particleIn[id];
+	p.pos += vec3(0, 0, 1)*deltaTime;
+	p.rotation += deltaTime;
+	p.lifeRatio -= 0.25*deltaTime;
+
+	if(p.lifeRatio <= 0) {
+		return;
+	}
+
+	particleOut[atomicCounterIncrement(drawCount)] = p;
+}

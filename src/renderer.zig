@@ -245,7 +245,7 @@ pub fn renderWorld(world: *World, ambientLight: Vec3f, skyColor: Vec3f, playerPo
 	gpu_performance_measuring.stopQuery();
 
 	gpu_performance_measuring.startQuery(.particle_rendering);
-	particles.ParticleSystem.render(game.projectionMatrix, game.camera.viewMatrix, ambientLight);
+	particles.ParticleSystem.render(game.projectionMatrix, game.camera.viewMatrix, ambientLight, playerPos);
 	gpu_performance_measuring.stopQuery();
 
 	// Rebind block textures back to their original slots

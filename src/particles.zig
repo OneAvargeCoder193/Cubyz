@@ -145,27 +145,40 @@ pub const ParticleManager = struct {
 		emissionTextureArray.generate(emissionTextures.items, true, false);
 
 		particleTypesSSBO.bufferData(ParticleType, ParticleManager.types.items);
-		particleTypesSSBO.bind(14);
+		particleTypesSSBO.bind(16);
 	}
 };
 
 pub const ParticleSystem = struct {
 	pub const maxCapacity: u32 = 524288;
 	var particleCount: u32 = 0;
-	var particles: [maxCapacity]Particle = undefined;
-	var particlesLocal: [maxCapacity]ParticleLocal = undefined;
 	var properties: EmitterProperties = undefined;
 	var previousPlayerPos: Vec3d = undefined;
 
-	var particlesSSBO: SSBO = undefined;
+	var particleInputSSBO: SSBO = undefined;
+	var particleOutputSSBO: SSBO = undefined;
 
 	var pipeline: graphics.Pipeline = undefined;
 	const UniformStruct = struct {
 		projectionAndViewMatrix: c_int,
 		billboardMatrix: c_int,
 		ambientLight: c_int,
+		playerPosition: c_int,
 	};
 	var uniforms: UniformStruct = undefined;
+
+	var updatePipeline: graphics.ComputePipeline = undefined;
+	const UpdateUniformStruct = struct {
+		maxCapacity: c_int,
+		deltaTime: c_int,
+	};
+	var updateUniforms: UpdateUniformStruct = undefined;
+	const CreateUniformStruct = struct {
+		maxCapacity: c_int,
+	};
+	var createUniforms: CreateUniformStruct = undefined;
+	var createPipeline: graphics.ComputePipeline = undefined;
+	var drawCountBuffer: c_uint = undefined;
 
 	pub fn init() void {
 		pipeline = graphics.Pipeline.init(
@@ -176,6 +189,16 @@ pub const ParticleSystem = struct {
 			.{},
 			.{.depthTest = true, .depthWrite = true},
 			.{.attachments = &.{.noBlending}},
+		);
+		updatePipeline = graphics.ComputePipeline.init(
+			"assets/cubyz/shaders/particles/update.comp",
+			"",
+			&updateUniforms,
+		);
+		createPipeline = graphics.ComputePipeline.init(
+			"assets/cubyz/shaders/particles/create.comp",
+			"",
+			&createUniforms,
 		);
 
 		properties = EmitterProperties{
@@ -189,117 +212,68 @@ pub const ParticleSystem = struct {
 			.rotVelMax = std.math.pi*0.6,
 			.randomizeRotationOnSpawn = true,
 		};
-		particlesSSBO = SSBO.init();
-		particlesSSBO.createDynamicBuffer(Particle, maxCapacity);
-		particlesSSBO.bind(13);
+		particleInputSSBO = SSBO.init();
+		particleInputSSBO.createDynamicBuffer(Particle, maxCapacity);
+		
+		particleOutputSSBO = SSBO.init();
+		particleOutputSSBO.createDynamicBuffer(Particle, maxCapacity);
+
+		c.glGenBuffers(1, &drawCountBuffer);
+		c.glBindBuffer(c.GL_ATOMIC_COUNTER_BUFFER, drawCountBuffer);
+		c.glBufferData(c.GL_ATOMIC_COUNTER_BUFFER, @sizeOf(c_uint), null, c.GL_DYNAMIC_DRAW);
+		c.glBindBufferBase(c.GL_ATOMIC_COUNTER_BUFFER, 0, drawCountBuffer);
 
 		seed = @bitCast(@as(i64, @truncate(std.time.nanoTimestamp())));
 	}
 
 	pub fn deinit() void {
 		pipeline.deinit();
-		particlesSSBO.deinit();
+		updatePipeline.deinit();
+		createPipeline.deinit();
+		particleInputSSBO.deinit();
+		particleOutputSSBO.deinit();
+		c.glDeleteBuffers(1, &drawCountBuffer);
 	}
 
 	pub fn update(deltaTime: f32) void {
-		const vecDeltaTime: Vec4f = @as(Vec4f, @splat(deltaTime));
-		const playerPos = game.Player.getEyePosBlocking();
-		const prevPlayerPosDifference: Vec3f = @floatCast(previousPlayerPos - playerPos);
+		particleInputSSBO.bind(13);
+		particleOutputSSBO.bind(14);
 
-		var i: u32 = 0;
-		while(i < particleCount) {
-			const particle = &particles[i];
-			const particleLocal = &particlesLocal[i];
-			particle.lifeRatio -= particleLocal.lifeVelocity*deltaTime;
-			if(particle.lifeRatio < 0) {
-				particleCount -= 1;
-				particles[i] = particles[particleCount];
-				particlesLocal[i] = particlesLocal[particleCount];
-				continue;
-			}
-
-			var rot = particle.posAndRotation[3];
-			const rotVel = particleLocal.velAndRotationVel[3];
-			rot += rotVel*deltaTime;
-
-			particleLocal.velAndRotationVel += vec.combine(properties.gravity, 0)*vecDeltaTime;
-			particleLocal.velAndRotationVel *= @splat(@exp(-properties.drag*deltaTime));
-			const posDelta = particleLocal.velAndRotationVel*vecDeltaTime;
-
-			if(particleLocal.collides) {
-				const size = ParticleManager.types.items[particle.typ].size;
-				const hitBox: game.collision.Box = .{.min = @splat(size*-0.5), .max = @splat(size*0.5)};
-				var v3Pos = playerPos + @as(Vec3d, @floatCast(Vec3f{particle.posAndRotation[0], particle.posAndRotation[1], particle.posAndRotation[2]} + prevPlayerPosDifference));
-				v3Pos[0] += posDelta[0];
-				if(game.collision.collides(.client, .x, -posDelta[0], v3Pos, hitBox)) |box| {
-					v3Pos[0] = if(posDelta[0] < 0)
-						box.max[0] - hitBox.min[0]
-					else
-						box.min[0] - hitBox.max[0];
-				}
-				v3Pos[1] += posDelta[1];
-				if(game.collision.collides(.client, .y, -posDelta[1], v3Pos, hitBox)) |box| {
-					v3Pos[1] = if(posDelta[1] < 0)
-						box.max[1] - hitBox.min[1]
-					else
-						box.min[1] - hitBox.max[1];
-				}
-				v3Pos[2] += posDelta[2];
-				if(game.collision.collides(.client, .z, -posDelta[2], v3Pos, hitBox)) |box| {
-					v3Pos[2] = if(posDelta[2] < 0)
-						box.max[2] - hitBox.min[2]
-					else
-						box.min[2] - hitBox.max[2];
-				}
-				particle.posAndRotation = vec.combine(@as(Vec3f, @floatCast(v3Pos - playerPos)), 0);
-			} else {
-				particle.posAndRotation += posDelta + vec.combine(prevPlayerPosDifference, 0);
-			}
-
-			particle.posAndRotation[3] = rot;
-			particleLocal.velAndRotationVel[3] = rotVel;
-
-			const positionf64 = @as(Vec4d, @floatCast(particle.posAndRotation)) + Vec4d{playerPos[0], playerPos[1], playerPos[2], 0};
-			const intPos: vec.Vec4i = @intFromFloat(@floor(positionf64));
-			const light: [6]u8 = main.renderer.mesh_storage.getLight(intPos[0], intPos[1], intPos[2]) orelse @splat(0);
-			const compressedLight =
-				@as(u32, light[0] >> 3) << 25 |
-				@as(u32, light[1] >> 3) << 20 |
-				@as(u32, light[2] >> 3) << 15 |
-				@as(u32, light[3] >> 3) << 10 |
-				@as(u32, light[4] >> 3) << 5 |
-				@as(u32, light[5] >> 3);
-			particle.light = compressedLight;
-
-			i += 1;
+		if(main.random.nextFloat(&seed) < 0.1) {
+			createPipeline.bind();
+			c.glUniform1ui(createUniforms.maxCapacity, maxCapacity);
+			c.glDispatchCompute(1, 1, 1);
+			c.glMemoryBarrier(c.GL_SHADER_STORAGE_BARRIER_BIT | c.GL_ATOMIC_COUNTER_BARRIER_BIT);
 		}
-		previousPlayerPos = playerPos;
+
+		c.glGetBufferSubData(c.GL_ATOMIC_COUNTER_BUFFER, 0, @sizeOf(u32), &particleCount);
+
+		var zero: c_uint = 0;
+		c.glBindBuffer(c.GL_ATOMIC_COUNTER_BUFFER, drawCountBuffer);
+		c.glClearBufferData(c.GL_ATOMIC_COUNTER_BUFFER, c.GL_R32UI, c.GL_RED_INTEGER, c.GL_UNSIGNED_INT, &zero);
+		c.glBindBufferBase(c.GL_ATOMIC_COUNTER_BUFFER, 0, drawCountBuffer);
+
+		if(particleCount > 0) {
+			updatePipeline.bind();
+			c.glUniform1ui(updateUniforms.maxCapacity, maxCapacity);
+			c.glUniform1f(updateUniforms.deltaTime, deltaTime);
+			c.glDispatchCompute(@intCast(@divFloor(particleCount + 63, 64)), 1, 1);
+			c.glMemoryBarrier(c.GL_SHADER_STORAGE_BARRIER_BIT | c.GL_ATOMIC_COUNTER_BARRIER_BIT);
+			std.mem.swap(SSBO, &particleInputSSBO, &particleOutputSSBO);
+		}
+
+		c.glGetBufferSubData(c.GL_ATOMIC_COUNTER_BUFFER, 0, @sizeOf(u32), &particleCount);
 	}
 
-	fn addParticle(typ: u32, pos: Vec3d, vel: Vec3f, collides: bool) void {
-		const lifeTime = properties.lifeTimeMin + random.nextFloat(&seed)*properties.lifeTimeMax;
-		const rot = if(properties.randomizeRotationOnSpawn) random.nextFloat(&seed)*std.math.pi*2 else 0;
-
-		particles[particleCount] = Particle{
-			.posAndRotation = vec.combine(@as(Vec3f, @floatCast(pos - previousPlayerPos)), rot),
-			.typ = typ,
-		};
-		particlesLocal[particleCount] = ParticleLocal{
-			.velAndRotationVel = vec.combine(vel, properties.rotVelMin + random.nextFloatSigned(&seed)*properties.rotVelMax),
-			.lifeVelocity = 1/lifeTime,
-			.collides = collides,
-		};
-		particleCount += 1;
-	}
-
-	pub fn render(projectionMatrix: Mat4f, viewMatrix: Mat4f, ambientLight: Vec3f) void {
-		particlesSSBO.bufferSubData(Particle, &particles, particleCount);
-
+	pub fn render(projectionMatrix: Mat4f, viewMatrix: Mat4f, ambientLight: Vec3f, playerPos: Vec3d) void {
 		pipeline.bind(null);
+		particleInputSSBO.bind(13);
 
 		const projectionAndViewMatrix = Mat4f.mul(projectionMatrix, viewMatrix);
 		c.glUniformMatrix4fv(uniforms.projectionAndViewMatrix, 1, c.GL_TRUE, @ptrCast(&projectionAndViewMatrix));
 		c.glUniform3fv(uniforms.ambientLight, 1, @ptrCast(&ambientLight));
+		const playerPosition: Vec3f = @floatCast(playerPos);
+		c.glUniform3fv(uniforms.playerPosition, 1, @ptrCast(&playerPosition));
 
 		const billboardMatrix = Mat4f.rotationZ(-game.camera.rotation[2] + std.math.pi*0.5)
 			.mul(Mat4f.rotationY(game.camera.rotation[0] - std.math.pi*0.5));
@@ -419,13 +393,8 @@ pub const Emitter = struct {
 		return emitter;
 	}
 
-	pub fn spawnParticles(self: Emitter, spawnCount: u32, comptime T: type, spawnRules: T) void {
-		const count = @min(spawnCount, ParticleSystem.maxCapacity - ParticleSystem.particleCount);
-		for(0..count) |_| {
-			const particlePos, const particleVel = spawnRules.spawn();
-
-			ParticleSystem.addParticle(self.typ, particlePos, particleVel, self.collides);
-		}
+	pub fn spawnParticles(_: Emitter, _: u32, comptime T: type, _: T) void {
+		
 	}
 };
 

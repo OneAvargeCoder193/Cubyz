@@ -6,6 +6,7 @@ layout(location = 1) flat out vec3 light;
 layout(location = 0) uniform vec3 ambientLight;
 layout(location = 1) uniform mat4 projectionAndViewMatrix;
 layout(location = 2) uniform mat4 billboardMatrix;
+layout(location = 3) uniform vec3 playerPosition;
 
 struct ParticleData {
 	vec3 pos;
@@ -24,7 +25,7 @@ struct ParticleTypeData {
 	float startFrame;
 	float size;
 };
-layout(std430, binding = 14) restrict readonly buffer _particleTypeData
+layout(std430, binding = 16) restrict readonly buffer _particleTypeData
 {
 	ParticleTypeData particleTypeData[];
 };
@@ -62,7 +63,7 @@ void main() {
 		fullLight >> 5 & 31u,
 		fullLight >> 0 & 31u
 	);
-	light = max(sunLight*ambientLight, blockLight)/31;
+	light = particle.pos;//max(sunLight*ambientLight, blockLight)/31;
 
 	float rotation = particle.rotation;
 	vec3 faceVertPos = facePositions[vertexID];
@@ -74,7 +75,7 @@ void main() {
 		0
 	);
 
-	const vec3 vertexPos = (billboardMatrix*vec4(particleType.size*vertexRotationPos, 1)).xyz + particle.pos;
+	const vec3 vertexPos = (billboardMatrix*vec4(particleType.size*vertexRotationPos, 1)).xyz + particle.pos - playerPosition;
 	gl_Position = projectionAndViewMatrix*vec4(vertexPos, 1);
 
 	float textureIndex = floor(particle.lifeRatio*particleType.animationFrames + particleType.startFrame);
