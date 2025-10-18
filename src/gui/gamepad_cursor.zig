@@ -12,17 +12,17 @@ const size: f32 = 16;
 var texture: Texture = undefined;
 
 pub fn init() void {
-	texture = Texture.initFromFile("assets/cubyz/ui/gamepad_cursor.png");
+    texture = Texture.initFromFile("assets/cubyz/ui/gamepad_cursor.png");
 }
 
 pub fn deinit() void {
-	texture.deinit();
+    texture.deinit();
 }
 
 pub fn render() void {
-	if(main.Window.lastUsedMouse or main.Window.grabbed) return;
-	texture.bindTo(0);
-	graphics.draw.setColor(0xffffffff);
-	const mousePos = main.Window.getMousePosition();
-	graphics.draw.boundImage(@as(Vec2f, @splat(-size/2.0)) + (mousePos/@as(Vec2f, @splat(gui.scale))), .{size, size});
+    if (main.Window.lastUsedMouse or main.Window.grabbed) return;
+    texture.bindTo(0);
+    graphics.draw.setColor(0xffffffff);
+    const mousePos = main.Window.getMousePosition();
+    graphics.draw.boundImage(@as(Vec2f, @splat(-size / 2.0)) + (mousePos / @as(Vec2f, @splat(gui.scale))), .{ size, size });
 }

@@ -14,51 +14,51 @@ const ItemSlot = GuiComponent.ItemSlot;
 const Icon = GuiComponent.Icon;
 
 pub var window = GuiWindow{
-	.relativePosition = .{
-		.{.attachedToFrame = .{.selfAttachmentPoint = .middle, .otherAttachmentPoint = .middle}},
-		.{.attachedToFrame = .{.selfAttachmentPoint = .upper, .otherAttachmentPoint = .upper}},
-	},
-	.contentSize = Vec2f{64*12, 64},
-	.isHud = true,
-	.showTitleBar = false,
-	.hasBackground = false,
-	.hideIfMouseIsGrabbed = false,
-	.closeable = false,
-	.scale = 0.75,
+    .relativePosition = .{
+        .{ .attachedToFrame = .{ .selfAttachmentPoint = .middle, .otherAttachmentPoint = .middle } },
+        .{ .attachedToFrame = .{ .selfAttachmentPoint = .upper, .otherAttachmentPoint = .upper } },
+    },
+    .contentSize = Vec2f{ 64 * 12, 64 },
+    .isHud = true,
+    .showTitleBar = false,
+    .hasBackground = false,
+    .hideIfMouseIsGrabbed = false,
+    .closeable = false,
+    .scale = 0.75,
 };
 
 var hotbarSlotTexture: Texture = undefined;
 
 pub fn init() void {
-	hotbarSlotTexture = Texture.initFromFile("assets/cubyz/ui/inventory/hotbar_slot.png");
+    hotbarSlotTexture = Texture.initFromFile("assets/cubyz/ui/inventory/hotbar_slot.png");
 }
 
 pub fn deinit() void {
-	hotbarSlotTexture.deinit();
+    hotbarSlotTexture.deinit();
 }
 
 var itemSlots: [12]*ItemSlot = undefined;
 
 pub fn onOpen() void {
-	const list = HorizontalList.init();
-	for(0..12) |i| {
-		itemSlots[i] = ItemSlot.init(.{0, 0}, Player.inventory, @intCast(i), .{.custom = hotbarSlotTexture}, .normal);
-		list.add(itemSlots[i]);
-	}
-	list.finish(.{0, 0}, .center);
-	window.rootComponent = list.toComponent();
-	window.contentSize = window.rootComponent.?.size();
-	gui.updateWindowPositions();
+    const list = HorizontalList.init();
+    for (0..12) |i| {
+        itemSlots[i] = ItemSlot.init(.{ 0, 0 }, Player.inventory, @intCast(i), .{ .custom = hotbarSlotTexture }, .normal);
+        list.add(itemSlots[i]);
+    }
+    list.finish(.{ 0, 0 }, .center);
+    window.rootComponent = list.toComponent();
+    window.contentSize = window.rootComponent.?.size();
+    gui.updateWindowPositions();
 }
 
 pub fn onClose() void {
-	if(window.rootComponent) |*comp| {
-		comp.deinit();
-	}
+    if (window.rootComponent) |*comp| {
+        comp.deinit();
+    }
 }
 
 pub fn update() void {
-	Player.mutex.lock();
-	defer Player.mutex.unlock();
-	itemSlots[Player.selectedSlot].hovered = true;
+    Player.mutex.lock();
+    defer Player.mutex.unlock();
+    itemSlots[Player.selectedSlot].hovered = true;
 }

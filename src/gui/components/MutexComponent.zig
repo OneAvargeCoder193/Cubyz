@@ -22,55 +22,55 @@ child: GuiComponent = undefined,
 mutex: std.Thread.Mutex = .{},
 
 pub fn updateInner(self: *MutexComponent, _other: anytype) void {
-	main.utils.assertLocked(&self.mutex);
-	var other: GuiComponent = undefined;
-	if(@TypeOf(_other) == GuiComponent) {
-		other = _other;
-	} else {
-		other = _other.toComponent();
-	}
-	self.child = other;
-	self.pos = other.pos();
-	self.size = other.size();
+    main.utils.assertLocked(&self.mutex);
+    var other: GuiComponent = undefined;
+    if (@TypeOf(_other) == GuiComponent) {
+        other = _other;
+    } else {
+        other = _other.toComponent();
+    }
+    self.child = other;
+    self.pos = other.pos();
+    self.size = other.size();
 }
 
 pub fn deinit(self: *MutexComponent) void {
-	main.utils.assertLocked(&self.mutex);
-	self.child.deinit();
+    main.utils.assertLocked(&self.mutex);
+    self.child.deinit();
 }
 
 pub fn toComponent(self: *MutexComponent) GuiComponent {
-	return .{.mutexComponent = self};
+    return .{ .mutexComponent = self };
 }
 
 pub fn updateSelected(self: *MutexComponent) void {
-	self.mutex.lock();
-	defer self.mutex.unlock();
-	self.child.updateSelected();
+    self.mutex.lock();
+    defer self.mutex.unlock();
+    self.child.updateSelected();
 }
 
 pub fn updateHovered(self: *MutexComponent, mousePosition: Vec2f) void {
-	self.mutex.lock();
-	defer self.mutex.unlock();
-	self.child.updateHovered(mousePosition);
+    self.mutex.lock();
+    defer self.mutex.unlock();
+    self.child.updateHovered(mousePosition);
 }
 
 pub fn render(self: *MutexComponent, mousePosition: Vec2f) void {
-	self.mutex.lock();
-	defer self.mutex.unlock();
-	self.child.render(mousePosition);
-	self.pos = self.child.pos();
-	self.size = self.child.size();
+    self.mutex.lock();
+    defer self.mutex.unlock();
+    self.child.render(mousePosition);
+    self.pos = self.child.pos();
+    self.size = self.child.size();
 }
 
 pub fn mainButtonPressed(self: *MutexComponent, mousePosition: Vec2f) void {
-	self.mutex.lock();
-	defer self.mutex.unlock();
-	self.child.mainButtonPressed(mousePosition);
+    self.mutex.lock();
+    defer self.mutex.unlock();
+    self.child.mainButtonPressed(mousePosition);
 }
 
 pub fn mainButtonReleased(self: *MutexComponent, mousePosition: Vec2f) void {
-	self.mutex.lock();
-	defer self.mutex.unlock();
-	self.child.mainButtonReleased(mousePosition);
+    self.mutex.lock();
+    defer self.mutex.unlock();
+    self.child.mainButtonReleased(mousePosition);
 }

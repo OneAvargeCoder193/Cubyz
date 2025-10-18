@@ -66,137 +66,137 @@ pub var developerGPUInfiniteLoopDetection: bool = false;
 
 pub var controllerAxisDeadzone: f32 = 0.0;
 
-const settingsFile = if(builtin.mode == .Debug) "debug_settings.zig.zon" else "settings.zig.zon";
+const settingsFile = if (builtin.mode == .Debug) "debug_settings.zig.zon" else "settings.zig.zon";
 
 pub fn init() void {
-	const zon: ZonElement = main.files.cubyzDir().readToZon(main.stackAllocator, settingsFile) catch |err| blk: {
-		if(err != error.FileNotFound) {
-			std.log.err("Could not read settings file: {s}", .{@errorName(err)});
-		}
-		break :blk .null;
-	};
-	defer zon.deinit(main.stackAllocator);
+    const zon: ZonElement = main.files.cubyzDir().readToZon(main.stackAllocator, settingsFile) catch |err| blk: {
+        if (err != error.FileNotFound) {
+            std.log.err("Could not read settings file: {s}", .{@errorName(err)});
+        }
+        break :blk .null;
+    };
+    defer zon.deinit(main.stackAllocator);
 
-	inline for(@typeInfo(@This()).@"struct".decls) |decl| {
-		const is_const = @typeInfo(@TypeOf(&@field(@This(), decl.name))).pointer.is_const; // Sadly there is no direct way to check if a declaration is const.
-		if(!is_const) {
-			const declType = @TypeOf(@field(@This(), decl.name));
-			if(@typeInfo(declType) == .@"struct") {
-				@compileError("Not implemented yet.");
-			}
-			@field(@This(), decl.name) = zon.get(declType, decl.name, @field(@This(), decl.name));
-			if(@typeInfo(declType) == .pointer) {
-				if(@typeInfo(declType).pointer.size == .slice) {
-					@field(@This(), decl.name) = main.globalAllocator.dupe(@typeInfo(declType).pointer.child, @field(@This(), decl.name));
-				} else {
-					@compileError("Not implemented yet.");
-				}
-			}
-		}
-	}
+    inline for (@typeInfo(@This()).@"struct".decls) |decl| {
+        const is_const = @typeInfo(@TypeOf(&@field(@This(), decl.name))).pointer.is_const; // Sadly there is no direct way to check if a declaration is const.
+        if (!is_const) {
+            const declType = @TypeOf(@field(@This(), decl.name));
+            if (@typeInfo(declType) == .@"struct") {
+                @compileError("Not implemented yet.");
+            }
+            @field(@This(), decl.name) = zon.get(declType, decl.name, @field(@This(), decl.name));
+            if (@typeInfo(declType) == .pointer) {
+                if (@typeInfo(declType).pointer.size == .slice) {
+                    @field(@This(), decl.name) = main.globalAllocator.dupe(@typeInfo(declType).pointer.child, @field(@This(), decl.name));
+                } else {
+                    @compileError("Not implemented yet.");
+                }
+            }
+        }
+    }
 
-	if(resolutionScale != 1 and resolutionScale != 0.5 and resolutionScale != 0.25) resolutionScale = 1;
+    if (resolutionScale != 1 and resolutionScale != 0.5 and resolutionScale != 0.25) resolutionScale = 1;
 
-	// keyboard settings:
-	const keyboard = zon.getChild("keyboard");
-	for(&main.KeyBoard.keys) |*key| {
-		const keyZon = keyboard.getChild(key.name);
-		key.key = keyZon.get(c_int, "key", key.key);
-		key.mouseButton = keyZon.get(c_int, "mouseButton", key.mouseButton);
-		key.scancode = keyZon.get(c_int, "scancode", key.scancode);
-	}
+    // keyboard settings:
+    const keyboard = zon.getChild("keyboard");
+    for (&main.KeyBoard.keys) |*key| {
+        const keyZon = keyboard.getChild(key.name);
+        key.key = keyZon.get(c_int, "key", key.key);
+        key.mouseButton = keyZon.get(c_int, "mouseButton", key.mouseButton);
+        key.scancode = keyZon.get(c_int, "scancode", key.scancode);
+    }
 }
 
 pub fn deinit() void {
-	save();
-	inline for(@typeInfo(@This()).@"struct".decls) |decl| {
-		const is_const = @typeInfo(@TypeOf(&@field(@This(), decl.name))).pointer.is_const; // Sadly there is no direct way to check if a declaration is const.
-		if(!is_const) {
-			const declType = @TypeOf(@field(@This(), decl.name));
-			if(@typeInfo(declType) == .@"struct") {
-				@compileError("Not implemented yet.");
-			}
-			if(@typeInfo(declType) == .pointer) {
-				if(@typeInfo(declType).pointer.size == .slice) {
-					main.globalAllocator.free(@field(@This(), decl.name));
-				} else {
-					@compileError("Not implemented yet.");
-				}
-			}
-		}
-	}
+    save();
+    inline for (@typeInfo(@This()).@"struct".decls) |decl| {
+        const is_const = @typeInfo(@TypeOf(&@field(@This(), decl.name))).pointer.is_const; // Sadly there is no direct way to check if a declaration is const.
+        if (!is_const) {
+            const declType = @TypeOf(@field(@This(), decl.name));
+            if (@typeInfo(declType) == .@"struct") {
+                @compileError("Not implemented yet.");
+            }
+            if (@typeInfo(declType) == .pointer) {
+                if (@typeInfo(declType).pointer.size == .slice) {
+                    main.globalAllocator.free(@field(@This(), decl.name));
+                } else {
+                    @compileError("Not implemented yet.");
+                }
+            }
+        }
+    }
 }
 
 pub fn save() void {
-	var zonObject = ZonElement.initObject(main.stackAllocator);
-	defer zonObject.deinit(main.stackAllocator);
+    var zonObject = ZonElement.initObject(main.stackAllocator);
+    defer zonObject.deinit(main.stackAllocator);
 
-	inline for(@typeInfo(@This()).@"struct".decls) |decl| {
-		if(comptime std.mem.eql(u8, decl.name, "lastVersionString")) {
-			zonObject.put(decl.name, version.version);
-			continue;
-		}
-		const is_const = @typeInfo(@TypeOf(&@field(@This(), decl.name))).pointer.is_const; // Sadly there is no direct way to check if a declaration is const.
-		if(!is_const) {
-			const declType = @TypeOf(@field(@This(), decl.name));
-			if(@typeInfo(declType) == .@"struct") {
-				@compileError("Not implemented yet.");
-			}
-			if(declType == []const u8) {
-				zonObject.putOwnedString(decl.name, @field(@This(), decl.name));
-			} else {
-				zonObject.put(decl.name, @field(@This(), decl.name));
-			}
-		}
-	}
+    inline for (@typeInfo(@This()).@"struct".decls) |decl| {
+        if (comptime std.mem.eql(u8, decl.name, "lastVersionString")) {
+            zonObject.put(decl.name, version.version);
+            continue;
+        }
+        const is_const = @typeInfo(@TypeOf(&@field(@This(), decl.name))).pointer.is_const; // Sadly there is no direct way to check if a declaration is const.
+        if (!is_const) {
+            const declType = @TypeOf(@field(@This(), decl.name));
+            if (@typeInfo(declType) == .@"struct") {
+                @compileError("Not implemented yet.");
+            }
+            if (declType == []const u8) {
+                zonObject.putOwnedString(decl.name, @field(@This(), decl.name));
+            } else {
+                zonObject.put(decl.name, @field(@This(), decl.name));
+            }
+        }
+    }
 
-	// keyboard settings:
-	const keyboard = ZonElement.initObject(main.stackAllocator);
-	for(&main.KeyBoard.keys) |key| {
-		const keyZon = ZonElement.initObject(main.stackAllocator);
-		keyZon.put("key", key.key);
-		keyZon.put("mouseButton", key.mouseButton);
-		keyZon.put("scancode", key.scancode);
-		keyboard.put(key.name, keyZon);
-	}
-	zonObject.put("keyboard", keyboard);
+    // keyboard settings:
+    const keyboard = ZonElement.initObject(main.stackAllocator);
+    for (&main.KeyBoard.keys) |key| {
+        const keyZon = ZonElement.initObject(main.stackAllocator);
+        keyZon.put("key", key.key);
+        keyZon.put("mouseButton", key.mouseButton);
+        keyZon.put("scancode", key.scancode);
+        keyboard.put(key.name, keyZon);
+    }
+    zonObject.put("keyboard", keyboard);
 
-	// Merge with the old settings file to preserve unknown settings.
-	var oldZonObject: ZonElement = main.files.cubyzDir().readToZon(main.stackAllocator, settingsFile) catch |err| blk: {
-		if(err != error.FileNotFound) {
-			std.log.err("Could not read settings file: {s}", .{@errorName(err)});
-		}
-		break :blk .null;
-	};
-	defer oldZonObject.deinit(main.stackAllocator);
+    // Merge with the old settings file to preserve unknown settings.
+    var oldZonObject: ZonElement = main.files.cubyzDir().readToZon(main.stackAllocator, settingsFile) catch |err| blk: {
+        if (err != error.FileNotFound) {
+            std.log.err("Could not read settings file: {s}", .{@errorName(err)});
+        }
+        break :blk .null;
+    };
+    defer oldZonObject.deinit(main.stackAllocator);
 
-	if(oldZonObject == .object) {
-		oldZonObject.join(zonObject);
-	} else {
-		oldZonObject.deinit(main.stackAllocator);
-		oldZonObject = zonObject;
-		zonObject = .null;
-	}
+    if (oldZonObject == .object) {
+        oldZonObject.join(zonObject);
+    } else {
+        oldZonObject.deinit(main.stackAllocator);
+        oldZonObject = zonObject;
+        zonObject = .null;
+    }
 
-	main.files.cubyzDir().writeZon(settingsFile, oldZonObject) catch |err| {
-		std.log.err("Couldn't write settings to file: {s}", .{@errorName(err)});
-	};
+    main.files.cubyzDir().writeZon(settingsFile, oldZonObject) catch |err| {
+        std.log.err("Couldn't write settings to file: {s}", .{@errorName(err)});
+    };
 }
 
 pub const launchConfig = struct {
-	pub var cubyzDir: []const u8 = "";
+    pub var cubyzDir: []const u8 = "";
 
-	pub fn init() void {
-		const zon: ZonElement = main.files.cwd().readToZon(main.stackAllocator, "launchConfig.zon") catch |err| blk: {
-			std.log.err("Could not read launchConfig.zon: {s}", .{@errorName(err)});
-			break :blk .null;
-		};
-		defer zon.deinit(main.stackAllocator);
+    pub fn init() void {
+        const zon: ZonElement = main.files.cwd().readToZon(main.stackAllocator, "launchConfig.zon") catch |err| blk: {
+            std.log.err("Could not read launchConfig.zon: {s}", .{@errorName(err)});
+            break :blk .null;
+        };
+        defer zon.deinit(main.stackAllocator);
 
-		cubyzDir = main.globalAllocator.dupe(u8, zon.get([]const u8, "cubyzDir", cubyzDir));
-	}
+        cubyzDir = main.globalAllocator.dupe(u8, zon.get([]const u8, "cubyzDir", cubyzDir));
+    }
 
-	pub fn deinit() void {
-		main.globalAllocator.free(cubyzDir);
-	}
+    pub fn deinit() void {
+        main.globalAllocator.free(cubyzDir);
+    }
 };
