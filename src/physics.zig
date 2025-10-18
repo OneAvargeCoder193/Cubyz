@@ -15,20 +15,46 @@ const camera = main.game.camera;
 const gravity = 30.0;
 const airTerminalVelocity = 90.0;
 const playerDensity = 1.2;
+const physicsTimeStep = 1.0 / 50.0;
+var accumulator: f64 = 0;
+var jumping = false;
+var oldPosition: Vec3d = .{0, 0, 0};
+var inputAccTotal: Vec3d = .{0, 0, 0};
 
 pub fn calculateProperties() void {
-	if(main.renderer.mesh_storage.getBlockFromRenderThread(@intFromFloat(@floor(Player.super.pos[0])), @intFromFloat(@floor(Player.super.pos[1])), @intFromFloat(@floor(Player.super.pos[2]))) != null) {
-		Player.volumeProperties = collision.calculateVolumeProperties(.client, Player.super.pos, Player.outerBoundingBox, .{.density = 0.001, .terminalVelocity = airTerminalVelocity, .maxDensity = 0.001, .mobility = 1.0});
+	if(main.renderer.mesh_storage.getBlockFromRenderThread(@intFromFloat(@floor(Player.nextPos[0])), @intFromFloat(@floor(Player.nextPos[1])), @intFromFloat(@floor(Player.nextPos[2]))) != null) {
+		Player.volumeProperties = collision.calculateVolumeProperties(.client, Player.nextPos, Player.outerBoundingBox, .{.density = 0.001, .terminalVelocity = airTerminalVelocity, .maxDensity = 0.001, .mobility = 1.0});
 
-		const groundFriction = if(!Player.onGround and !Player.isFlying.load(.monotonic)) 0 else collision.calculateSurfaceProperties(.client, Player.super.pos, Player.outerBoundingBox, 20).friction;
+		const groundFriction = if(!Player.onGround and !Player.isFlying.load(.monotonic)) 0 else collision.calculateSurfaceProperties(.client, Player.nextPos, Player.outerBoundingBox, 20).friction;
 		const volumeFrictionCoeffecient: f32 = @floatCast(gravity/Player.volumeProperties.terminalVelocity);
 		Player.currentFriction = if(Player.isFlying.load(.monotonic)) 20 else groundFriction + volumeFrictionCoeffecient;
 	}
 }
 
-pub fn update(deltaTime: f64, inputAcc: Vec3d, jumping: bool) void { // MARK: update()
+pub fn update(deltaTime: f64, inputAccThisFrame: Vec3d, jumpingThisFrame: bool) void { // MARK: update()
+	accumulator += deltaTime;
+	jumping = jumping or jumpingThisFrame;
+	inputAccTotal += inputAccThisFrame;
+	const inputDecrement = inputAccTotal / @as(Vec3d, @splat(physicsTimeStep / deltaTime + 1));
+	var i: usize = 0;
+	while(accumulator >= 0) {
+		oldPosition = Player.nextPos;
+		updateStep(inputDecrement);
+		jumping = false;
+		inputAccTotal -= inputDecrement;
+
+		const newTime = std.time.milliTimestamp() + @as(i64, @intFromFloat(physicsTimeStep * @as(f64, @floatFromInt(i)) * 1000));
+		main.network.Protocols.playerPosition.send(main.game.world.?.conn, Player.nextPos, Player.nextVel, @intCast(newTime & 65535));
+		accumulator -= physicsTimeStep;
+		i += 1;
+	}
+	const completePercentage = (accumulator + physicsTimeStep) / physicsTimeStep;
+	Player.super.pos = (Player.nextPos - oldPosition) * @as(Vec3d, @splat(completePercentage)) + oldPosition;
+}
+
+fn updateStep(inputAcc: Vec3d) void { // MARK: updateState()
 	var move: Vec3d = .{0, 0, 0};
-	if(main.renderer.mesh_storage.getBlockFromRenderThread(@intFromFloat(@floor(Player.super.pos[0])), @intFromFloat(@floor(Player.super.pos[1])), @intFromFloat(@floor(Player.super.pos[2]))) != null) {
+	if(main.renderer.mesh_storage.getBlockFromRenderThread(@intFromFloat(@floor(Player.nextPos[0])), @intFromFloat(@floor(Player.nextPos[1])), @intFromFloat(@floor(Player.nextPos[2]))) != null) {
 		const effectiveGravity = gravity*(playerDensity - Player.volumeProperties.density)/playerDensity;
 		const volumeFrictionCoeffecient: f32 = @floatCast(gravity/Player.volumeProperties.terminalVelocity);
 		var acc = inputAcc;
@@ -66,8 +92,8 @@ pub fn update(deltaTime: f64, inputAcc: Vec3d, jumping: bool) void { // MARK: up
 			// With x(0) = 0 we get C = c_1/λ
 			// x(t) = a/λt - c_1/λ e^(λ (-t)) + c_1/λ
 			const c_1 = v_0 - a/frictionCoefficient;
-			Player.super.vel[i] = a/frictionCoefficient + c_1*@exp(-frictionCoefficient*deltaTime);
-			move[i] = a/frictionCoefficient*deltaTime - c_1/frictionCoefficient*@exp(-frictionCoefficient*deltaTime) + c_1/frictionCoefficient;
+			Player.super.vel[i] = a/frictionCoefficient + c_1*@exp(-frictionCoefficient*physicsTimeStep);
+			move[i] = a/frictionCoefficient*physicsTimeStep - c_1/frictionCoefficient*@exp(-frictionCoefficient*physicsTimeStep) + c_1/frictionCoefficient;
 		}
 
 		acc = @splat(0);
@@ -99,7 +125,7 @@ pub fn update(deltaTime: f64, inputAcc: Vec3d, jumping: bool) void { // MARK: up
 		inline for(0..3) |i| blk: {
 			if(Player.eyeStep[i]) {
 				const oldPos = Player.eyePos[i];
-				const newPos = oldPos + Player.eyeVel[i]*deltaTime;
+				const newPos = oldPos + Player.eyeVel[i]*physicsTimeStep;
 				if(newPos*std.math.sign(Player.eyeVel[i]) <= -0.1) {
 					Player.eyePos[i] = newPos;
 					break :blk;
@@ -139,8 +165,8 @@ pub fn update(deltaTime: f64, inputAcc: Vec3d, jumping: bool) void { // MARK: up
 			const c_1 = c_2.addScalar(a/k).negate();
 			// v(t) = 1/2 (-c_3 - λ) c_1 e^(1/2 t (-c_3 - λ)) + (1/2 (c_3 - λ)) c_2 e^(1/2 t (c_3 - λ))
 			// x(t) = a/k + c_1 e^(1/2 t (-c_3 - λ)) + c_2 e^(1/2 t (c_3 - λ))
-			const firstTerm = c_1.mul((c_3.negate().subScalar(frictionCoefficient)).mulScalar(deltaTime/2).exp());
-			const secondTerm = c_2.mul((c_3.subScalar(frictionCoefficient)).mulScalar(deltaTime/2).exp());
+			const firstTerm = c_1.mul((c_3.negate().subScalar(frictionCoefficient)).mulScalar(physicsTimeStep/2.0).exp());
+			const secondTerm = c_2.mul((c_3.subScalar(frictionCoefficient)).mulScalar(physicsTimeStep/2.0).exp());
 			Player.eyeVel[i] = firstTerm.mul(c_3.negate().subScalar(frictionCoefficient).mulScalar(0.5)).add(secondTerm.mul((c_3.subScalar(frictionCoefficient)).mulScalar(0.5))).val[0];
 			Player.eyePos[i] += firstTerm.add(secondTerm).addScalar(a/k).val[0];
 		}
@@ -159,20 +185,20 @@ pub fn update(deltaTime: f64, inputAcc: Vec3d, jumping: bool) void { // MARK: up
 
 		const slipLimit = 0.25*Player.currentFriction;
 
-		const xMovement = collision.collideOrStep(.client, .x, move[0], Player.super.pos, hitBox, steppingHeight);
-		Player.super.pos += xMovement;
+		const xMovement = collision.collideOrStep(.client, .x, move[0], Player.nextPos, hitBox, steppingHeight);
+		Player.nextPos += xMovement;
 		if(Player.crouching and Player.onGround and @abs(Player.super.vel[0]) < slipLimit) {
-			if(collision.collides(.client, .x, 0, Player.super.pos - Vec3d{0, 0, 1}, hitBox) == null) {
-				Player.super.pos -= xMovement;
+			if(collision.collides(.client, .x, 0, Player.nextPos - Vec3d{0, 0, 1}, hitBox) == null) {
+				Player.nextPos -= xMovement;
 				Player.super.vel[0] = 0;
 			}
 		}
 
-		const yMovement = collision.collideOrStep(.client, .y, move[1], Player.super.pos, hitBox, steppingHeight);
-		Player.super.pos += yMovement;
+		const yMovement = collision.collideOrStep(.client, .y, move[1], Player.nextPos, hitBox, steppingHeight);
+		Player.nextPos += yMovement;
 		if(Player.crouching and Player.onGround and @abs(Player.super.vel[1]) < slipLimit) {
-			if(collision.collides(.client, .y, 0, Player.super.pos - Vec3d{0, 0, 1}, hitBox) == null) {
-				Player.super.pos -= yMovement;
+			if(collision.collides(.client, .y, 0, Player.nextPos - Vec3d{0, 0, 1}, hitBox) == null) {
+				Player.nextPos -= yMovement;
 				Player.super.vel[1] = 0;
 			}
 		}
@@ -203,20 +229,20 @@ pub fn update(deltaTime: f64, inputAcc: Vec3d, jumping: bool) void { // MARK: up
 
 		const wasOnGround = Player.onGround;
 		Player.onGround = false;
-		Player.super.pos[2] += move[2];
-		if(collision.collides(.client, .z, -move[2], Player.super.pos, hitBox)) |box| {
+		Player.nextPos[2] += move[2];
+		if(collision.collides(.client, .z, -move[2], Player.nextPos, hitBox)) |box| {
 			if(move[2] < 0) {
 				if(!wasOnGround) {
 					Player.eyeVel[2] = Player.super.vel[2];
-					Player.eyePos[2] -= (box.max[2] - hitBox.min[2] - Player.super.pos[2]);
+					Player.eyePos[2] -= (box.max[2] - hitBox.min[2] - Player.nextPos[2]);
 				}
 				Player.onGround = true;
-				Player.super.pos[2] = box.max[2] - hitBox.min[2];
+				Player.nextPos[2] = box.max[2] - hitBox.min[2];
 				Player.eyeCoyote = 0;
 			} else {
-				Player.super.pos[2] = box.min[2] - hitBox.max[2];
+				Player.nextPos[2] = box.min[2] - hitBox.max[2];
 			}
-			var bounciness = if(Player.isFlying.load(.monotonic)) 0 else collision.calculateSurfaceProperties(.client, Player.super.pos, Player.outerBoundingBox, 0.0).bounciness;
+			var bounciness = if(Player.isFlying.load(.monotonic)) 0 else collision.calculateSurfaceProperties(.client, Player.nextPos, Player.outerBoundingBox, 0.0).bounciness;
 			if(Player.crouching) {
 				bounciness *= 0.5;
 			}
@@ -225,7 +251,7 @@ pub fn update(deltaTime: f64, inputAcc: Vec3d, jumping: bool) void { // MARK: up
 			if(bounciness != 0.0 and Player.super.vel[2] < -3.0) {
 				velocityChange = Player.super.vel[2]*@as(f64, @floatCast(1 - bounciness));
 				Player.super.vel[2] = -Player.super.vel[2]*bounciness;
-				Player.jumpCoyote = Player.jumpCoyoteTimeConstant + deltaTime;
+				Player.jumpCoyote = Player.jumpCoyoteTimeConstant + physicsTimeStep;
 				Player.eyeVel[2] *= 2;
 			} else {
 				velocityChange = Player.super.vel[2];
@@ -237,26 +263,26 @@ pub fn update(deltaTime: f64, inputAcc: Vec3d, jumping: bool) void { // MARK: up
 			}
 
 			// Always unstuck upwards for now
-			while(collision.collides(.client, .z, 0, Player.super.pos, hitBox)) |_| {
-				Player.super.pos[2] += 1;
+			while(collision.collides(.client, .z, 0, Player.nextPos, hitBox)) |_| {
+				Player.nextPos[2] += 1;
 			}
 		} else if(wasOnGround and move[2] < 0) {
 			// If the player drops off a ledge, they might just be walking over a small gap, so lock the y position of the eyes that long.
 			// This calculates how long the player has to fall until we know they're not walking over a small gap.
 			// We add deltaTime because we subtract deltaTime at the bottom of update
-			Player.eyeCoyote = @sqrt(2*Player.steppingHeight()[2]/gravity) + deltaTime;
-			Player.jumpCoyote = Player.jumpCoyoteTimeConstant + deltaTime;
+			Player.eyeCoyote = @sqrt(2*Player.steppingHeight()[2]/gravity) + physicsTimeStep;
+			Player.jumpCoyote = Player.jumpCoyoteTimeConstant + physicsTimeStep;
 			Player.eyePos[2] -= move[2];
 		} else if(Player.eyeCoyote > 0) {
 			Player.eyePos[2] -= move[2];
 		}
 		collision.touchBlocks(Player.super, hitBox, .client);
 	} else {
-		Player.super.pos += move;
+		Player.nextPos += move;
 	}
 
 	// Clamp the eyePosition and subtract eye coyote time.
 	Player.eyePos = @max(Player.eyeBox.min, @min(Player.eyePos, Player.eyeBox.max));
-	Player.eyeCoyote -= deltaTime;
-	Player.jumpCoyote -= deltaTime;
+	Player.eyeCoyote -= physicsTimeStep;
+	Player.jumpCoyote -= physicsTimeStep;
 }

@@ -406,6 +406,8 @@ pub const Player = struct { // MARK: Player
 	pub var super: main.server.Entity = .{};
 	pub var eyePos: Vec3d = .{0, 0, 0};
 	pub var eyeVel: Vec3d = .{0, 0, 0};
+	pub var nextPos: Vec3d = .{0, 0, 0};
+	pub var nextVel: Vec3d = .{0, 0, 0};
 	pub var eyeCoyote: f64 = 0;
 	pub var eyeStep: @Vector(3, bool) = .{false, false, false};
 	pub var crouching: bool = false;
@@ -457,6 +459,7 @@ pub const Player = struct { // MARK: Player
 		mutex.lock();
 		defer mutex.unlock();
 		super.pos = newPos;
+		nextPos = newPos;
 	}
 
 	pub fn getPosBlocking() Vec3d {
@@ -541,6 +544,8 @@ pub const Player = struct { // MARK: Player
 	pub fn kill() void {
 		Player.super.pos = world.?.spawn;
 		Player.super.vel = .{0, 0, 0};
+		Player.nextPos = world.?.spawn;
+		Player.nextVel = .{0, 0, 0};
 
 		Player.super.health = Player.super.maxHealth;
 		Player.super.energy = Player.super.maxEnergy;
@@ -741,7 +746,6 @@ pub const World = struct { // MARK: World
 			fog.fogLower = biomeFog.fogLower;
 			fog.fogHigher = biomeFog.fogHigher;
 		}
-		network.Protocols.playerPosition.send(self.conn, Player.getPosBlocking(), Player.getVelBlocking(), @intCast(newTime & 65535));
 	}
 };
 pub var testWorld: World = undefined; // TODO:
