@@ -72,3 +72,6 @@ If any of the following points are ignored, your texture will be rejected:
 Your texture may be edited or replaced to ensure a consistent art style throughout the game.
 
 For further information, ask <img src="https://avatars.githubusercontent.com/u/122191047" width="20" height="20">[careeoki](https://github.com/careeoki) on [Discord](https://discord.gg/XtqCRRG). She has made a majority of the art for Cubyz.
+
+# Wasm Modding
+For wasm modding checkout my [example mod](https://github.com/OneAvargeCoder193/CubyzModding) which contains example commands
