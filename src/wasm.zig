@@ -30,7 +30,7 @@ pub const WasmInstance = struct {
 	memory: ?*c.wasm_memory_t,
 	currentSide: main.utils.Side,
 	env: Env,
-	importList: ?[]?*c.wasm_extern_t,
+	importList: []?*c.wasm_extern_t,
 
 	pub const Env = struct {
 		instance: *WasmInstance,
@@ -51,6 +51,7 @@ pub const WasmInstance = struct {
 		c.wasm_module_exports(out.module, &out.exportTypes);
 		c.wasm_module_imports(out.module, &out.importTypes);
 		out.importList = main.globalAllocator.alloc(?*c.wasm_extern_t, out.importTypes.size);
+		@memset(out.importList, null);
 		return out;
 	}
 
@@ -60,21 +61,15 @@ pub const WasmInstance = struct {
 			c.wasm_instance_delete(self.instance);
 			c.wasm_exporttype_vec_delete(&self.exportTypes);
 			c.wasm_extern_vec_delete(&self.exports);
-			if(self.importList) |importList| {
-				main.globalAllocator.free(importList);
-			}
+			main.globalAllocator.free(self.importList);
 		}
 		allocator.destroy(self);
 	}
 
 	pub fn instantiate(self: *WasmInstance) !void {
 		var imports: c.wasm_extern_vec_t = undefined;
-		c.wasm_extern_vec_new(&imports, self.importList.?.len, self.importList.?.ptr);
-		defer {
-			c.wasm_extern_vec_delete(&imports);
-			main.globalAllocator.free(self.importList.?);
-			self.importList = null;
-		}
+		c.wasm_extern_vec_new(&imports, self.importList.len, self.importList.ptr);
+		defer c.wasm_extern_vec_delete(&imports);
 		self.instance = c.wasm_instance_new(store, self.module, &imports, null) orelse {
 			const err = main.stackAllocator.alloc(u8, @intCast(c.wasmer_last_error_length()));
 			_ = c.wasmer_last_error_message(err.ptr, @intCast(err.len));
@@ -96,7 +91,7 @@ pub const WasmInstance = struct {
 		c.wasm_valtype_vec_new(&retVec, rets.len, &rets);
 		const funcType = c.wasm_functype_new(&argVec, &retVec);
 		const function = c.wasm_func_new_with_env(store, funcType, func, &self.env, null);
-		self.importList.?[importIndex] = c.wasm_func_as_extern(function);
+		self.importList[importIndex] = c.wasm_func_as_extern(function);
 	}
 
 	pub fn getImport(self: *WasmInstance, name: []const u8) ?usize {
@@ -136,7 +131,7 @@ pub const WasmInstance = struct {
 	pub fn alloc(self: *WasmInstance, amount: usize) !usize {
 		if(amount == 0) return 0;
 		var args = [_]c.wasm_val_t{
-			.{.kind = c.WASM_I32, .of = .{.@"i32" = @intCast(amount)}},
+			.{.kind = c.WASM_I32, .of = .{.i32 = @intCast(amount)}},
 		};
 		var ret: [1]c.wasm_val_t = undefined;
 		try self.invoke("alloc", &args, &ret);
@@ -146,8 +141,8 @@ pub const WasmInstance = struct {
 	pub fn free(self: *WasmInstance, ptr: usize, len: usize) !void {
 		if(len == 0) return;
 		var args = [_]c.wasm_val_t{
-			.{.kind = c.WASM_I32, .of = .{.@"i32" = @intCast(ptr)}},
-			.{.kind = c.WASM_I32, .of = .{.@"i32" = @intCast(len)}},
+			.{.kind = c.WASM_I32, .of = .{.i32 = @intCast(ptr)}},
+			.{.kind = c.WASM_I32, .of = .{.i32 = @intCast(len)}},
 		};
 		var ret: [0]c.wasm_val_t = undefined;
 		try self.invoke("free", &args, &ret);
@@ -166,8 +161,8 @@ pub const WasmInstance = struct {
 		const allocated = self.alloc(slice.len) catch unreachable;
 		@memcpy(memory[allocated..allocated + slice.len], slice);
 		return .{
-			.{.kind = c.WASM_I32, .of = .{.@"i32" = @intCast(allocated)}},
-			.{.kind = c.WASM_I32, .of = .{.@"i32" = @intCast(slice.len)}}
+			.{.kind = c.WASM_I32, .of = .{.i32 = @intCast(allocated)}},
+			.{.kind = c.WASM_I32, .of = .{.i32 = @intCast(slice.len)}}
 		};
 	}
 };

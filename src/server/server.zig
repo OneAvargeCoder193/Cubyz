@@ -297,6 +297,66 @@ pub fn sendRawMessageWasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wasm_val
 	for(userList) |user| {
 		if(user.id == userId) {
 			user.sendRawMessage(message);
+			break;
+		}
+	}
+	return null;
+}
+
+pub fn setPositionWasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wasm_val_vec_t, _: [*c]main.wasm.c.wasm_val_vec_t) callconv(.c) ?*main.wasm.c.wasm_trap_t {
+	const instance = @as(*main.wasm.WasmInstance.Env, @ptrCast(@alignCast(env.?))).instance;
+	const userId: u32 = @intCast(args.*.data[0].of.i32);
+	const posX: f64 = args.*.data[1].of.f64;
+	const posY: f64 = args.*.data[2].of.f64;
+	const posZ: f64 = args.*.data[3].of.f64;
+	switch(instance.currentSide) {
+		.server => {
+			const userList = getUserListAndIncreaseRefCount(main.stackAllocator);
+			defer freeUserListAndDecreaseRefCount(main.stackAllocator, userList);
+			for(userList) |user| {
+				if(user.id == userId) {
+					main.network.Protocols.genericUpdate.sendTPCoordinates(user.conn, .{posX, posY, posZ});
+					break;
+				}
+			}
+		},
+		.client => {
+			if(userId == main.game.Player.id) {
+				main.game.Player.super.pos = .{posX, posY, posZ};
+			}
+		}
+	}
+	return null;
+}
+
+pub fn getPositionWasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wasm_val_vec_t, _: [*c]main.wasm.c.wasm_val_vec_t) callconv(.c) ?*main.wasm.c.wasm_trap_t {
+	const instance = @as(*main.wasm.WasmInstance.Env, @ptrCast(@alignCast(env.?))).instance;
+	var memory = main.wasm.c.wasm_memory_data(instance.memory);
+	const userId: u32 = @intCast(args.*.data[0].of.i32);
+	const posX: u32 = @intCast(args.*.data[1].of.i32);
+	const posY: u32 = @intCast(args.*.data[2].of.i32);
+	const posZ: u32 = @intCast(args.*.data[3].of.i32);
+	switch(instance.currentSide) {
+		.server => {
+			const userList = getUserListAndIncreaseRefCount(main.stackAllocator);
+			defer freeUserListAndDecreaseRefCount(main.stackAllocator, userList);
+			for(userList) |user| {
+				if(user.id == userId) {
+					const pos = user.player.pos;
+					std.mem.writeInt(u64, memory[posX..][0..8], @bitCast(pos[0]), .little);
+					std.mem.writeInt(u64, memory[posY..][0..8], @bitCast(pos[1]), .little);
+					std.mem.writeInt(u64, memory[posZ..][0..8], @bitCast(pos[2]), .little);
+					break;
+				}
+			}
+		},
+		.client => {
+			if(userId == main.game.Player.id) {
+				const pos = main.game.Player.super.pos;
+				std.mem.writeInt(u64, memory[posX..][0..8], @bitCast(pos[0]), .little);
+				std.mem.writeInt(u64, memory[posY..][0..8], @bitCast(pos[1]), .little);
+				std.mem.writeInt(u64, memory[posZ..][0..8], @bitCast(pos[2]), .little);
+			}
 		}
 	}
 	return null;

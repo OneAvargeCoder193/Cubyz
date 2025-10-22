@@ -1252,3 +1252,16 @@ pub const ServerWorld = struct { // MARK: ServerWorld
 		self.mutex.unlock();
 	}
 };
+
+pub fn setBlockWasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wasm_val_vec_t, _: [*c]main.wasm.c.wasm_val_vec_t) callconv(.c) ?*main.wasm.c.wasm_trap_t {
+	const instance = @as(*main.wasm.WasmInstance.Env, @ptrCast(@alignCast(env.?))).instance;
+	if(instance.currentSide == .client or server.world == null) return null;
+	const block: Block = @bitCast(args.*.data[0].of.i32);
+	const x: i32 = args.*.data[1].of.i32;
+	const y: i32 = args.*.data[2].of.i32;
+	const z: i32 = args.*.data[3].of.i32;
+	main.items.Inventory.Sync.ServerSide.mutex.lock();
+	defer main.items.Inventory.Sync.ServerSide.mutex.unlock();
+	server.world.?.updateBlock(x, y, z, block);
+	return null;
+}

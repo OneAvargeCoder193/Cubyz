@@ -298,7 +298,19 @@ pub fn hasRegistered(id: []const u8) bool {
 	return reverseIndices.contains(id);
 }
 
-pub const Block = packed struct { // MARK: Block
+pub fn parseBlockWasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wasm_val_vec_t, rets: [*c]main.wasm.c.wasm_val_vec_t) callconv(.c) ?*main.wasm.c.wasm_trap_t {
+	const instance = @as(*main.wasm.WasmInstance.Env, @ptrCast(@alignCast(env.?))).instance;
+	const data = instance.createSliceFromWasm(main.stackAllocator, args.*.data[0], args.*.data[1]) catch unreachable;
+	defer main.stackAllocator.free(data);
+	const block = parseBlock(data);
+	rets.*.data[0] = .{
+		.kind = main.wasm.c.WASM_I32,
+		.of = .{.i32 = @bitCast(block) },
+	};
+	return null;
+}
+
+pub const Block = packed struct(u32) { // MARK: Block
 	typ: u16,
 	data: u16,
 
