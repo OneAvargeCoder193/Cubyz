@@ -20,9 +20,9 @@ pub fn init() void {
 	const commandList = @import("_list.zig");
 	inline for(@typeInfo(commandList).@"struct".decls) |decl| {
 		commands.put(decl.name, .{
-			.name = decl.name,
-			.description = @field(commandList, decl.name).description,
-			.usage = @field(commandList, decl.name).usage,
+			.name = main.globalAllocator.dupe(u8, decl.name),
+			.description = main.globalAllocator.dupe(u8, @field(commandList, decl.name).description),
+			.usage = main.globalAllocator.dupe(u8, @field(commandList, decl.name).usage),
 			.exec = .{.func = &@field(commandList, decl.name).execute},
 		}) catch unreachable;
 		std.log.debug("Registered command: '/{s}'", .{decl.name});
@@ -33,6 +33,12 @@ pub fn init() void {
 }
 
 pub fn deinit() void {
+	var iter = commands.valueIterator();
+	while(iter.next()) |command| {
+		main.globalAllocator.free(command.name);
+		main.globalAllocator.free(command.description);
+		main.globalAllocator.free(command.usage);
+	}
 	commands.deinit();
 }
 
@@ -46,19 +52,16 @@ pub fn execute(msg: []const u8, source: *User) void {
 				exec(msg[@min(end + 1, msg.len)..], source);
 			},
 			.mod => |instance| {
-				const memory = main.wasm.c.wasm_memory_data(instance.memory);
-				const nameLoc = instance.alloc(command.len) catch unreachable;
-				defer instance.free(nameLoc, command.len) catch unreachable;
 				const args = msg[@min(end + 1, msg.len)..];
-				const argLoc = instance.alloc(args.len) catch unreachable;
-				defer instance.free(argLoc, args.len) catch unreachable;
-				@memcpy(memory[nameLoc..nameLoc + command.len], command);
-				@memcpy(memory[argLoc..argLoc + args.len], args);
+				const nameLoc, const nameLen = instance.createWasmFromSlice(command);
+				defer instance.free(@intCast(nameLoc.of.i32), command.len) catch unreachable;
+				const argLoc, const argLen = instance.createWasmFromSlice(args);
+				defer instance.free(@intCast(argLoc.of.i32), args.len) catch unreachable;
 				var argList = [_]main.wasm.c.wasm_val_t{
-					.{.kind = main.wasm.c.WASM_I32, .of = .{.@"i32" = @intCast(nameLoc)}},
-					.{.kind = main.wasm.c.WASM_I32, .of = .{.@"i32" = @intCast(command.len)}},
-					.{.kind = main.wasm.c.WASM_I32, .of = .{.@"i32" = @intCast(argLoc)}},
-					.{.kind = main.wasm.c.WASM_I32, .of = .{.@"i32" = @intCast(args.len)}},
+					nameLoc,
+					nameLen,
+					argLoc,
+					argLen,
 					.{.kind = main.wasm.c.WASM_I32, .of = .{.@"i32" = @intCast(source.id)}},
 				};
 				var retList = [0]main.wasm.c.wasm_val_t{};
@@ -73,16 +76,9 @@ pub fn execute(msg: []const u8, source: *User) void {
 
 pub fn registerCommandWasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wasm_val_vec_t, _: [*c]main.wasm.c.wasm_val_vec_t) callconv(.c) ?*main.wasm.c.wasm_trap_t {
 	const instance = @as(*main.wasm.WasmInstance.Env, @ptrCast(@alignCast(env.?))).instance;
-	const nameStart: usize = @intCast(args.*.data[0].of.i32);
-	const nameLen: usize = @intCast(args.*.data[1].of.i32);
-	const descriptionStart: usize = @intCast(args.*.data[2].of.i32);
-	const descriptionLen: usize = @intCast(args.*.data[3].of.i32);
-	const usageStart: usize = @intCast(args.*.data[4].of.i32);
-	const usageLen: usize = @intCast(args.*.data[5].of.i32);
-	const memory = main.wasm.c.wasm_memory_data(instance.memory);
-	const name = memory[nameStart..nameStart + nameLen];
-	const description = memory[descriptionStart..descriptionStart + descriptionLen];
-	const usage = memory[usageStart..usageStart + usageLen];
+	const name = instance.createSliceFromWasm(main.globalAllocator, args.*.data[0], args.*.data[1]) catch unreachable;
+	const description = instance.createSliceFromWasm(main.globalAllocator, args.*.data[2], args.*.data[3]) catch unreachable;
+	const usage = instance.createSliceFromWasm(main.globalAllocator, args.*.data[3], args.*.data[4]) catch unreachable;
 	commands.put(name, .{
 		.name = name,
 		.description = description,

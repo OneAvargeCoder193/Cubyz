@@ -36,7 +36,7 @@ fn loadMod(file: std.fs.File) !*wasm.WasmInstance {
 	const mod = wasm.WasmInstance.init(main.globalAllocator, file) catch unreachable;
 	errdefer mod.deinit(main.globalAllocator);
 	try mod.addImport("registerCommandImpl", &main.server.command.registerCommandWasm);
-	try mod.addImport("sendMessageUnformatted", &main.server.sendRawMessageWasm);
+	try mod.addImport("sendMessageImpl", &main.server.sendRawMessageWasm);
 	try mod.addImport("addHealthImpl", &main.items.Inventory.Sync.addHealthWasm);
 	mod.instantiate() catch |err| {
 		std.log.err("Failed to instantiate module: {}\n", .{err});

@@ -46,7 +46,23 @@
             .url = "git+https://github.com/PixelGuys/Cubyz-Assets/#e0ea686f86c008b29cd109e1bdd757ce6574eaf3",
             .hash = "N-V-__8AAAxDUATPdad1MQC8jeiFsoXRet_SvG6acW5Dmxdh",
         },
-        .wasmer = .{
+        .wasmer_x86_64_macos = .{
+            .url = "https://github.com/wasmerio/wasmer/releases/download/v6.1.0/wasmer-darwin-amd64.tar.gz",
+            .hash = "N-V-__8AAGq10gsjBULCIbHMcnzzUUv5B8XEKYhilXuDpxqa",
+        },
+        .wasmer_aarch64_macos = .{
+            .url = "https://github.com/wasmerio/wasmer/releases/download/v6.1.0/wasmer-darwin-arm64.tar.gz",
+            .hash = "N-V-__8AAGq10gsjBULCIbHMcnzzUUv5B8XEKYhilXuDpxqa",
+        },
+        .wasmer_x86_64_linux = .{
+            .url = "https://github.com/wasmerio/wasmer/releases/download/v6.1.0/wasmer-linux-amd64.tar.gz",
+            .hash = "N-V-__8AAGq10gsjBULCIbHMcnzzUUv5B8XEKYhilXuDpxqa",
+        },
+        .wasmer_aarch64_linux = .{
+            .url = "https://github.com/wasmerio/wasmer/releases/download/v6.1.0/wasmer-linux-aarch64.tar.gz",
+            .hash = "N-V-__8AAGq10gsjBULCIbHMcnzzUUv5B8XEKYhilXuDpxqa",
+        },
+        .wasmer_x86_64_windows = .{
             .url = "https://github.com/wasmerio/wasmer/releases/download/v6.1.0/wasmer-windows-gnu64.tar.gz",
             .hash = "N-V-__8AAGq10gsjBULCIbHMcnzzUUv5B8XEKYhilXuDpxqa",
         },

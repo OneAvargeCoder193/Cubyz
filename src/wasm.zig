@@ -22,6 +22,7 @@ pub fn deinit() void {
 
 pub const WasmInstance = struct {
 	module: ?*c.wasm_module_t,
+	instanciated: bool = false,
 	instance: *c.wasm_instance_t,
 	exportTypes: c.wasm_exporttype_vec_t,
 	importTypes: c.wasm_importtype_vec_t,
@@ -55,13 +56,15 @@ pub const WasmInstance = struct {
 
 	pub fn deinit(self: *WasmInstance, allocator: main.heap.NeverFailingAllocator) void {
 		c.wasm_module_delete(self.module);
-		c.wasm_instance_delete(self.instance);
-		c.wasm_exporttype_vec_delete(&self.exportTypes);
-		c.wasm_extern_vec_delete(&self.exports);
-		allocator.destroy(self);
-		if(self.importList) |importList| {
-			main.globalAllocator.free(importList);
+		if(self.instanciated) {
+			c.wasm_instance_delete(self.instance);
+			c.wasm_exporttype_vec_delete(&self.exportTypes);
+			c.wasm_extern_vec_delete(&self.exports);
+			if(self.importList) |importList| {
+				main.globalAllocator.free(importList);
+			}
 		}
+		allocator.destroy(self);
 	}
 
 	pub fn instantiate(self: *WasmInstance) !void {
@@ -78,6 +81,7 @@ pub const WasmInstance = struct {
 			std.log.err("{s}\n", .{err});
 			return error.WasmInstanceError;
 		};
+		self.instanciated = true;
 		c.wasm_instance_exports(self.instance, &self.exports);
 		self.memory = c.wasm_extern_as_memory(self.getExport("memory"));
 	}
@@ -126,6 +130,7 @@ pub const WasmInstance = struct {
 	}
 
 	pub fn alloc(self: *WasmInstance, amount: usize) !usize {
+		if(amount == 0) return 0;
 		var args = [_]c.wasm_val_t{
 			.{.kind = c.WASM_I32, .of = .{.@"i32" = @intCast(amount)}},
 		};
@@ -135,12 +140,31 @@ pub const WasmInstance = struct {
 	}
 
 	pub fn free(self: *WasmInstance, ptr: usize, len: usize) !void {
+		if(len == 0) return;
 		var args = [_]c.wasm_val_t{
 			.{.kind = c.WASM_I32, .of = .{.@"i32" = @intCast(ptr)}},
 			.{.kind = c.WASM_I32, .of = .{.@"i32" = @intCast(len)}},
 		};
 		var ret: [0]c.wasm_val_t = undefined;
 		try self.invoke("free", &args, &ret);
+	}
+
+	pub fn createSliceFromWasm(self: *WasmInstance, allocator: main.heap.NeverFailingAllocator, start: c.wasm_val_t, len: c.wasm_val_t) ![]u8 {
+		if(start.kind != c.WASM_I32) return error.TypeMustBeI32;
+		if(len.kind != c.WASM_I32) return error.TypeMustBeI32;
+		if(start.of.i32 < 0 or len.of.i32 <= 0) return &.{};
+		const memory = main.wasm.c.wasm_memory_data(self.memory);
+		return allocator.dupe(u8, memory[@intCast(start.of.i32)..@intCast(start.of.i32 + len.of.i32)]);
+	}
+
+	pub fn createWasmFromSlice(self: *WasmInstance, slice: []const u8) struct{c.wasm_val_t, c.wasm_val_t} {
+		const memory = main.wasm.c.wasm_memory_data(self.memory);
+		const allocated = self.alloc(slice.len) catch unreachable;
+		@memcpy(memory[allocated..allocated + slice.len], slice);
+		return .{
+			.{.kind = c.WASM_I32, .of = .{.@"i32" = @intCast(allocated)}},
+			.{.kind = c.WASM_I32, .of = .{.@"i32" = @intCast(slice.len)}}
+		};
 	}
 };
 
