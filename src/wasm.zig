@@ -86,12 +86,16 @@ pub const WasmInstance = struct {
 		self.memory = c.wasm_extern_as_memory(self.getExport("memory"));
 	}
 
-	pub fn addImport(self: *WasmInstance, name: []const u8, func: c.wasm_func_callback_with_env_t) !void {
+	pub fn addImport(self: *WasmInstance, name: []const u8, func: c.wasm_func_callback_with_env_t, args: anytype, rets: anytype) !void {
+		std.debug.assert(@typeInfo(@TypeOf(args)).array.child == ?*c.wasm_valtype_t);
+		std.debug.assert(@typeInfo(@TypeOf(rets)).array.child == ?*c.wasm_valtype_t);
 		const importIndex = self.getImport(name) orelse return error.ImportNotFound;
-		const importData = self.importTypes.data[importIndex];
-		const importType = if(c.wasm_importtype_type(importData)) |ptr| @constCast(ptr) else null;
-		const func_type = c.wasm_externtype_as_functype(importType);
-		const function = c.wasm_func_new_with_env(store, func_type, func, &self.env, null);
+		var argVec: c.wasm_valtype_vec_t = undefined;
+		c.wasm_valtype_vec_new(&argVec, args.len, &args);
+		var retVec: c.wasm_valtype_vec_t = undefined;
+		c.wasm_valtype_vec_new(&retVec, rets.len, &rets);
+		const funcType = c.wasm_functype_new(&argVec, &retVec);
+		const function = c.wasm_func_new_with_env(store, funcType, func, &self.env, null);
 		self.importList.?[importIndex] = c.wasm_func_as_extern(function);
 	}
 

@@ -35,9 +35,9 @@ pub fn init() void {
 fn loadMod(file: std.fs.File) !*wasm.WasmInstance {
 	const mod = wasm.WasmInstance.init(main.globalAllocator, file) catch unreachable;
 	errdefer mod.deinit(main.globalAllocator);
-	try mod.addImport("registerCommandImpl", &main.server.command.registerCommandWasm);
-	try mod.addImport("sendMessageImpl", &main.server.sendRawMessageWasm);
-	try mod.addImport("addHealthImpl", &main.items.Inventory.Sync.addHealthWasm);
+	try mod.addImport("registerCommandImpl", &main.server.command.registerCommandWasm, [_]?*wasm.c.wasm_valtype_t{wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32()}, [_]?*wasm.c.wasm_valtype_t{});
+	try mod.addImport("sendMessageImpl", &main.server.sendRawMessageWasm, [_]?*wasm.c.wasm_valtype_t{wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32()}, [_]?*wasm.c.wasm_valtype_t{});
+	try mod.addImport("addHealthImpl", &main.items.Inventory.Sync.addHealthWasm, [_]?*wasm.c.wasm_valtype_t{wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_f32(), wasm.c.wasm_valtype_new_i32()}, [_]?*wasm.c.wasm_valtype_t{});
 	mod.instantiate() catch |err| {
 		std.log.err("Failed to instantiate module: {}\n", .{err});
 		return err;

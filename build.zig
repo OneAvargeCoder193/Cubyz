@@ -17,9 +17,8 @@ fn linkLibraries(b: *std.Build, exe: *std.Build.Step.Compile, useLocalDeps: bool
 
 	const wasmerDepName = b.fmt("wasmer_{s}_{s}", .{@tagName(t.cpu.arch), @tagName(t.os.tag)});
 	const wasmerDep = b.dependency(wasmerDepName, .{});
-	const wasmerPath = wasmerDep.path(".");
-	exe.addIncludePath(wasmerPath.path(b, "include"));
-	exe.addLibraryPath(wasmerPath.path(b, "lib"));
+	exe.addIncludePath(wasmerDep.path("include"));
+	exe.addLibraryPath(wasmerDep.path("lib"));
 	exe.root_module.linkSystemLibrary("wasmer", .{
 		.preferred_link_mode = .static,
 	});
