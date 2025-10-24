@@ -303,6 +303,146 @@ pub fn sendRawMessageWasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wasm_val
 	return null;
 }
 
+pub fn getSelectedPosition1Wasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wasm_val_vec_t, rets: [*c]main.wasm.c.wasm_val_vec_t) callconv(.c) ?*main.wasm.c.wasm_trap_t {
+	const instance = @as(*main.wasm.WasmInstance.Env, @ptrCast(@alignCast(env.?))).instance;
+	var memory = main.wasm.c.wasm_memory_data(instance.memory);
+	const userId: u32 = @intCast(args.*.data[0].of.i32);
+	const posX: u32 = @intCast(args.*.data[1].of.i32);
+	const posY: u32 = @intCast(args.*.data[2].of.i32);
+	const posZ: u32 = @intCast(args.*.data[3].of.i32);
+	var exists: bool = false;
+	blk: switch(instance.currentSide) {
+		.server => {
+			const userList = getUserListAndIncreaseRefCount(main.stackAllocator);
+			defer freeUserListAndDecreaseRefCount(main.stackAllocator, userList);
+			for(userList) |user| {
+				if(user.id == userId) {
+					const pos = user.worldEditData.selectionPosition1 orelse break :blk;
+					exists = true;
+					std.mem.writeInt(u64, memory[posX..][0..8], @bitCast(pos[0]), .little);
+					std.mem.writeInt(u64, memory[posY..][0..8], @bitCast(pos[1]), .little);
+					std.mem.writeInt(u64, memory[posZ..][0..8], @bitCast(pos[2]), .little);
+					break;
+				}
+			}
+		},
+		.client => {
+			if(userId == main.game.Player.id) {
+				const pos = main.game.Player.selectionPosition1 orelse break :blk;
+				exists = true;
+				std.mem.writeInt(u64, memory[posX..][0..8], @bitCast(pos[0]), .little);
+				std.mem.writeInt(u64, memory[posY..][0..8], @bitCast(pos[1]), .little);
+				std.mem.writeInt(u64, memory[posZ..][0..8], @bitCast(pos[2]), .little);
+			}
+		}
+	}
+	rets.data.*[0] = .{
+		.kind = main.wasm.c.WASM_I32,
+		.of = .{.i32 = @intFromBool(exists)}
+	};
+	return null;
+}
+
+pub fn getSelectedPosition2Wasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wasm_val_vec_t, rets: [*c]main.wasm.c.wasm_val_vec_t) callconv(.c) ?*main.wasm.c.wasm_trap_t {
+	const instance = @as(*main.wasm.WasmInstance.Env, @ptrCast(@alignCast(env.?))).instance;
+	var memory = main.wasm.c.wasm_memory_data(instance.memory);
+	const userId: u32 = @intCast(args.*.data[0].of.i32);
+	const posX: u32 = @intCast(args.*.data[1].of.i32);
+	const posY: u32 = @intCast(args.*.data[2].of.i32);
+	const posZ: u32 = @intCast(args.*.data[3].of.i32);
+	var exists: bool = false;
+	blk: switch(instance.currentSide) {
+		.server => {
+			const userList = getUserListAndIncreaseRefCount(main.stackAllocator);
+			defer freeUserListAndDecreaseRefCount(main.stackAllocator, userList);
+			for(userList) |user| {
+				if(user.id == userId) {
+					const pos = user.worldEditData.selectionPosition2 orelse break :blk;
+					exists = true;
+					std.mem.writeInt(u64, memory[posX..][0..8], @bitCast(pos[0]), .little);
+					std.mem.writeInt(u64, memory[posY..][0..8], @bitCast(pos[1]), .little);
+					std.mem.writeInt(u64, memory[posZ..][0..8], @bitCast(pos[2]), .little);
+					break;
+				}
+			}
+		},
+		.client => {
+			if(userId == main.game.Player.id) {
+				const pos = main.game.Player.selectionPosition2 orelse break :blk;
+				exists = true;
+				std.mem.writeInt(u64, memory[posX..][0..8], @bitCast(pos[0]), .little);
+				std.mem.writeInt(u64, memory[posY..][0..8], @bitCast(pos[1]), .little);
+				std.mem.writeInt(u64, memory[posZ..][0..8], @bitCast(pos[2]), .little);
+			}
+		}
+	}
+	rets.data.*[0] = .{
+		.kind = main.wasm.c.WASM_I32,
+		.of = .{.i32 = @intFromBool(exists)}
+	};
+	return null;
+}
+
+pub fn setSelectedPosition1Wasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wasm_val_vec_t, _: [*c]main.wasm.c.wasm_val_vec_t) callconv(.c) ?*main.wasm.c.wasm_trap_t {
+	const instance = @as(*main.wasm.WasmInstance.Env, @ptrCast(@alignCast(env.?))).instance;
+	const userId: u32 = @intCast(args.*.data[0].of.i32);
+	const exists: bool = args.*.data[1].of.i32 != 0;
+	const posX: i32 = args.*.data[2].of.i32;
+	const posY: i32 = args.*.data[3].of.i32;
+	const posZ: i32 = args.*.data[4].of.i32;
+	const pos: ?Vec3i = if(exists) .{posX, posY, posZ} else null;
+	switch(instance.currentSide) {
+		.server => {
+			const userList = getUserListAndIncreaseRefCount(main.stackAllocator);
+			defer freeUserListAndDecreaseRefCount(main.stackAllocator, userList);
+			for(userList) |user| {
+				if(user.id == userId) {
+					user.worldEditData.selectionPosition1 = pos;
+					main.network.Protocols.genericUpdate.sendWorldEditPos(user.conn, .selectedPos1, pos);
+					break;
+				}
+			}
+		},
+		.client => {
+			if(userId == main.game.Player.id) {
+				main.game.Player.selectedPosition1 = pos;
+				main.network.Protocols.genericUpdate.sendWorldEditPos(main.game.world.?.conn, .selectedPos1, pos);
+			}
+		}
+	}
+	return null;
+}
+
+pub fn setSelectedPosition2Wasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wasm_val_vec_t, _: [*c]main.wasm.c.wasm_val_vec_t) callconv(.c) ?*main.wasm.c.wasm_trap_t {
+	const instance = @as(*main.wasm.WasmInstance.Env, @ptrCast(@alignCast(env.?))).instance;
+	const userId: u32 = @intCast(args.*.data[0].of.i32);
+	const exists: bool = args.*.data[1].of.i32 != 0;
+	const posX: i32 = args.*.data[2].of.i32;
+	const posY: i32 = args.*.data[3].of.i32;
+	const posZ: i32 = args.*.data[4].of.i32;
+	const pos: ?Vec3i = if(exists) .{posX, posY, posZ} else null;
+	switch(instance.currentSide) {
+		.server => {
+			const userList = getUserListAndIncreaseRefCount(main.stackAllocator);
+			defer freeUserListAndDecreaseRefCount(main.stackAllocator, userList);
+			for(userList) |user| {
+				if(user.id == userId) {
+					user.worldEditData.selectionPosition2 = pos;
+					main.network.Protocols.genericUpdate.sendWorldEditPos(user.conn, .selectedPos2, pos);
+					break;
+				}
+			}
+		},
+		.client => {
+			if(userId == main.game.Player.id) {
+				main.game.Player.selectedPosition2 = pos;
+				main.network.Protocols.genericUpdate.sendWorldEditPos(main.game.world.?.conn, .selectedPos2, pos);
+			}
+		}
+	}
+	return null;
+}
+
 pub fn setPositionWasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wasm_val_vec_t, _: [*c]main.wasm.c.wasm_val_vec_t) callconv(.c) ?*main.wasm.c.wasm_trap_t {
 	const instance = @as(*main.wasm.WasmInstance.Env, @ptrCast(@alignCast(env.?))).instance;
 	const userId: u32 = @intCast(args.*.data[0].of.i32);
