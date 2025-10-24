@@ -28,7 +28,7 @@ pub fn init() void {
 		std.log.debug("Registered command: '/{s}'", .{decl.name});
 	}
 	for(main.modding.mods.items) |mod| {
-		mod.invoke("registerCommands", &.{}, &.{}) catch {};
+		mod.invoke("registerCommands", .{}, void) catch {};
 	}
 }
 
@@ -54,20 +54,8 @@ pub fn execute(msg: []const u8, source: *User) void {
 			},
 			.mod => |instance| {
 				const args = msg[@min(end + 1, msg.len)..];
-				const nameLoc, const nameLen = instance.createWasmFromSlice(command);
-				defer instance.free(@intCast(nameLoc.of.i32), command.len) catch unreachable;
-				const argLoc, const argLen = instance.createWasmFromSlice(args);
-				defer instance.free(@intCast(argLoc.of.i32), args.len) catch unreachable;
-				var argList = [_]main.wasm.c.wasm_val_t{
-					nameLoc,
-					nameLen,
-					argLoc,
-					argLen,
-					.{.kind = main.wasm.c.WASM_I32, .of = .{.i32 = @intCast(source.id)}},
-				};
-				var retList = [0]main.wasm.c.wasm_val_t{};
 				instance.currentSide = .server;
-				instance.invoke("executeCommand", &argList, &retList) catch unreachable;
+				instance.invoke("executeCommand", .{command, args, source.id}, void) catch unreachable;
 			}
 		}
 	} else {

@@ -78,7 +78,7 @@ pub const WasmInstance = struct {
 		};
 		self.instanciated = true;
 		c.wasm_instance_exports(self.instance, &self.exports);
-		self.memory = c.wasm_extern_as_memory(self.getExport("memory"));
+		self.memory = c.wasm_extern_as_memory(self.exports.data[self.getExport("memory") orelse return]);
 	}
 
 	fn getNumberArgs(comptime T: type) comptime_int {
@@ -119,6 +119,7 @@ pub const WasmInstance = struct {
 
 	fn wasmToValue(self: *WasmInstance, comptime T: type, vals: [getNumberArgs(T)]c.wasm_val_t) T {
 		return switch(@typeInfo(T)) {
+			.void => {},
 			.bool => vals[0].of.i32 != 0,
 			.int => |int| switch(int.bits) {
 				32 => @as(T, @bitCast(vals[0].of.i32)),
@@ -140,6 +141,7 @@ pub const WasmInstance = struct {
 
 	fn valueToWasm(self: *WasmInstance, comptime T: type, val: T) [getNumberArgs(T)]c.wasm_val_t {
 		return switch(@typeInfo(T)) {
+			.void => [_]c.wasm_val_t{},
 			.bool => [_]c.wasm_val_t{.{.kind = c.WASM_I32, .of = .{.i32 = @intFromBool(val)}}},
 			.int => |int| switch(int.bits) {
 				32 => [_]c.wasm_val_t{.{.kind = c.WASM_I32, .of = .{.i32 = @bitCast(val)}}},
@@ -246,64 +248,85 @@ pub const WasmInstance = struct {
 		return null;
 	}
 
-	pub fn getExport(self: *WasmInstance, name: []const u8) ?*c.wasm_extern_t {
+	pub fn getExport(self: *WasmInstance, name: []const u8) ?usize {
 		for(0..self.exports.size) |i| {
 			const exportType = self.exportTypes.data[i];
 			var exportNameVec = c.wasm_exporttype_name(exportType).*;
 			const exportName = exportNameVec.data[0..exportNameVec.size];
 			if(std.mem.eql(u8, name, exportName)) {
-				return self.exports.data[i];
+				return i;
 			}
 		}
 		return null;
 	}
 
-	pub fn invoke(self: *WasmInstance, name: []const u8, args: []c.wasm_val_t, ret: []c.wasm_val_t) !void {
-		const externValue = self.getExport(name) orelse return error.FunctionDoesNotExist;
+	pub fn invoke(self: *WasmInstance, comptime name: []const u8, args: anytype, comptime Return: type) !Return {
+		comptime var len = 0;
+		inline for(args) |arg| {
+			len += getNumberArgs(@TypeOf(arg));
+		}
+		var arguments: [len]c.wasm_val_t = undefined;
+		len = 0;
+		inline for(args) |arg| {
+			const argNumber = getNumberArgs(@TypeOf(arg));
+			arguments[len..][0..argNumber].* = self.valueToWasm(@TypeOf(arg), arg);
+			len += argNumber;
+		}
+		var ret = try self.invokeImpl(name, &arguments);
+		return self.wasmToValue(Return, ret[0..getNumberArgs(Return)].*);
+	}
+
+	pub fn invokeImpl(self: *WasmInstance, name: []const u8, args: []c.wasm_val_t) ![]c.wasm_val_t {
+		const externIndex = self.getExport(name) orelse return error.FunctionDoesNotExist;
+		const externValue = self.exports.data[externIndex];
 		const func = c.wasm_extern_as_func(externValue) orelse return error.ExportNotFunction;
+		const funcType = c.wasm_func_type(func);
 		var argVec: c.wasm_val_vec_t = .{.data = args.ptr, .size = args.len};
-		var retVec: c.wasm_val_vec_t = .{.data = ret.ptr, .size = ret.len};
+		const size = c.wasm_functype_results(funcType).*.size;
+		var retVec: c.wasm_val_vec_t = undefined;
+		c.wasm_val_vec_new_uninitialized(&retVec, size);
 		if(c.wasm_func_call(func, &argVec, &retVec)) |trap| {
 			printError("Failed to call function: {s}\n", trap);
 		}
+		return retVec.data[0..retVec.size];
 	}
 
-	pub fn alloc(self: *WasmInstance, amount: usize) !usize {
+	pub fn alloc(self: *WasmInstance, amount: u32) !u32 {
 		if(amount == 0) return 0;
-		var args = [_]c.wasm_val_t{
-			.{.kind = c.WASM_I32, .of = .{.i32 = @intCast(amount)}},
-		};
-		var ret: [1]c.wasm_val_t = undefined;
-		try self.invoke("alloc", &args, &ret);
-		return @intCast(ret[0].of.i32);
+		return try self.invoke("alloc", .{amount}, u32);
 	}
 
-	pub fn free(self: *WasmInstance, ptr: usize, len: usize) !void {
+	pub fn free(self: *WasmInstance, ptr: u32, len: u32) !void {
 		if(len == 0) return;
-		var args = [_]c.wasm_val_t{
-			.{.kind = c.WASM_I32, .of = .{.i32 = @intCast(ptr)}},
-			.{.kind = c.WASM_I32, .of = .{.i32 = @intCast(len)}},
-		};
-		var ret: [0]c.wasm_val_t = undefined;
-		try self.invoke("free", &args, &ret);
+		try self.invoke("free", .{ptr, len}, void);
 	}
 
-	pub fn createSliceFromWasm(self: *WasmInstance, start: c.wasm_val_t, len: c.wasm_val_t) ![]u8 {
+	fn createSliceFromWasm(self: *WasmInstance, start: c.wasm_val_t, len: c.wasm_val_t) ![]u8 {
 		if(start.kind != c.WASM_I32) return error.TypeMustBeI32;
 		if(len.kind != c.WASM_I32) return error.TypeMustBeI32;
 		if(start.of.i32 < 0 or len.of.i32 <= 0) return &.{};
-		const memory = main.wasm.c.wasm_memory_data(self.memory);
+		const memory = c.wasm_memory_data(self.memory);
 		return memory[@intCast(start.of.i32)..@intCast(start.of.i32 + len.of.i32)];
 	}
 
-	pub fn createWasmFromSlice(self: *WasmInstance, slice: []const u8) [2]c.wasm_val_t {
-		const memory = main.wasm.c.wasm_memory_data(self.memory);
-		const allocated = self.alloc(slice.len) catch unreachable;
+	fn createWasmFromSlice(self: *WasmInstance, slice: []const u8) [2]c.wasm_val_t {
+		const memory = c.wasm_memory_data(self.memory);
+		const allocated = self.alloc(@intCast(slice.len)) catch unreachable;
 		@memcpy(memory[allocated..allocated + slice.len], slice);
 		return [_]c.wasm_val_t{
-			.{.kind = c.WASM_I32, .of = .{.i32 = @intCast(allocated)}},
+			.{.kind = c.WASM_I32, .of = .{.i32 = @bitCast(allocated)}},
 			.{.kind = c.WASM_I32, .of = .{.i32 = @intCast(slice.len)}}
 		};
+	}
+
+	pub fn setMemory(self: *WasmInstance, T: type, val: T, ptr: u32) void {
+		const memory = c.wasm_memory_data(self.memory);
+		std.mem.writeInt(std.meta.Int(.unsigned, @bitSizeOf(T)), memory[ptr..][0..@sizeOf(T)], @bitCast(val), .little);
+	}
+
+	pub fn getMemory(self: *WasmInstance, T: type, ptr: u32) T {
+		const memory = c.wasm_memory_data(self.memory);
+		return @bitCast(std.mem.readInt(std.meta.Int(.unsigned, @bitSizeOf(T)), memory[ptr..][0..@sizeOf(T)], .little));
 	}
 };
 

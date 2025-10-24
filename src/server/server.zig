@@ -299,7 +299,6 @@ pub fn sendRawMessageWasm(_: *main.wasm.WasmInstance, userId: u32, message: []co
 }
 
 pub fn getSelectedPosition1Wasm(instance: *main.wasm.WasmInstance, userId: u32, posX: u32, posY: u32, posZ: u32) bool {
-	var memory = main.wasm.c.wasm_memory_data(instance.memory);
 	var exists: bool = false;
 	blk: switch(instance.currentSide) {
 		.server => {
@@ -309,9 +308,9 @@ pub fn getSelectedPosition1Wasm(instance: *main.wasm.WasmInstance, userId: u32, 
 				if(user.id == userId) {
 					const pos = user.worldEditData.selectionPosition1 orelse break :blk;
 					exists = true;
-					std.mem.writeInt(u32, memory[posX..][0..4], @bitCast(pos[0]), .little);
-					std.mem.writeInt(u32, memory[posY..][0..4], @bitCast(pos[1]), .little);
-					std.mem.writeInt(u32, memory[posZ..][0..4], @bitCast(pos[2]), .little);
+					instance.setMemory(i32, pos[0], posX);
+					instance.setMemory(i32, pos[1], posY);
+					instance.setMemory(i32, pos[2], posZ);
 					break;
 				}
 			}
@@ -320,9 +319,9 @@ pub fn getSelectedPosition1Wasm(instance: *main.wasm.WasmInstance, userId: u32, 
 			if(userId == main.game.Player.id) {
 				const pos = main.game.Player.selectionPosition1 orelse break :blk;
 				exists = true;
-				std.mem.writeInt(u32, memory[posX..][0..4], @bitCast(pos[0]), .little);
-				std.mem.writeInt(u32, memory[posY..][0..4], @bitCast(pos[1]), .little);
-				std.mem.writeInt(u32, memory[posZ..][0..4], @bitCast(pos[2]), .little);
+				instance.setMemory(i32, pos[0], posX);
+				instance.setMemory(i32, pos[1], posY);
+				instance.setMemory(i32, pos[2], posZ);
 			}
 		}
 	}
@@ -330,7 +329,6 @@ pub fn getSelectedPosition1Wasm(instance: *main.wasm.WasmInstance, userId: u32, 
 }
 
 pub fn getSelectedPosition2Wasm(instance: *main.wasm.WasmInstance, userId: u32, posX: u32, posY: u32, posZ: u32) bool {
-	var memory = main.wasm.c.wasm_memory_data(instance.memory);
 	var exists: bool = false;
 	blk: switch(instance.currentSide) {
 		.server => {
@@ -340,9 +338,9 @@ pub fn getSelectedPosition2Wasm(instance: *main.wasm.WasmInstance, userId: u32, 
 				if(user.id == userId) {
 					const pos = user.worldEditData.selectionPosition2 orelse break :blk;
 					exists = true;
-					std.mem.writeInt(u32, memory[posX..][0..4], @bitCast(pos[0]), .little);
-					std.mem.writeInt(u32, memory[posY..][0..4], @bitCast(pos[1]), .little);
-					std.mem.writeInt(u32, memory[posZ..][0..4], @bitCast(pos[2]), .little);
+					instance.setMemory(i32, pos[0], posX);
+					instance.setMemory(i32, pos[1], posY);
+					instance.setMemory(i32, pos[2], posZ);
 					break;
 				}
 			}
@@ -351,9 +349,9 @@ pub fn getSelectedPosition2Wasm(instance: *main.wasm.WasmInstance, userId: u32, 
 			if(userId == main.game.Player.id) {
 				const pos = main.game.Player.selectionPosition2 orelse break :blk;
 				exists = true;
-				std.mem.writeInt(u32, memory[posX..][0..4], @bitCast(pos[0]), .little);
-				std.mem.writeInt(u32, memory[posY..][0..4], @bitCast(pos[1]), .little);
-				std.mem.writeInt(u32, memory[posZ..][0..4], @bitCast(pos[2]), .little);
+				instance.setMemory(i32, pos[0], posX);
+				instance.setMemory(i32, pos[1], posY);
+				instance.setMemory(i32, pos[2], posZ);
 			}
 		}
 	}
@@ -427,7 +425,6 @@ pub fn setPositionWasm(instance: *main.wasm.WasmInstance, userId: u32, posX: f64
 }
 
 pub fn getPositionWasm(instance: *main.wasm.WasmInstance, userId: u32, posX: u32, posY: u32, posZ: u32) void {
-	var memory = main.wasm.c.wasm_memory_data(instance.memory);
 	switch(instance.currentSide) {
 		.server => {
 			const userList = getUserListAndIncreaseRefCount(main.stackAllocator);
@@ -435,9 +432,9 @@ pub fn getPositionWasm(instance: *main.wasm.WasmInstance, userId: u32, posX: u32
 			for(userList) |user| {
 				if(user.id == userId) {
 					const pos = user.player.pos;
-					std.mem.writeInt(u64, memory[posX..][0..8], @bitCast(pos[0]), .little);
-					std.mem.writeInt(u64, memory[posY..][0..8], @bitCast(pos[1]), .little);
-					std.mem.writeInt(u64, memory[posZ..][0..8], @bitCast(pos[2]), .little);
+					instance.setMemory(f64, pos[0], posX);
+					instance.setMemory(f64, pos[1], posY);
+					instance.setMemory(f64, pos[2], posZ);
 					break;
 				}
 			}
@@ -445,9 +442,9 @@ pub fn getPositionWasm(instance: *main.wasm.WasmInstance, userId: u32, posX: u32
 		.client => {
 			if(userId == main.game.Player.id) {
 				const pos = main.game.Player.super.pos;
-				std.mem.writeInt(u64, memory[posX..][0..8], @bitCast(pos[0]), .little);
-				std.mem.writeInt(u64, memory[posY..][0..8], @bitCast(pos[1]), .little);
-				std.mem.writeInt(u64, memory[posZ..][0..8], @bitCast(pos[2]), .little);
+				instance.setMemory(f64, pos[0], posX);
+				instance.setMemory(f64, pos[1], posY);
+				instance.setMemory(f64, pos[2], posZ);
 			}
 		}
 	}
