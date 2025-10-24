@@ -287,11 +287,7 @@ pub const User = struct { // MARK: User
 	}
 };
 
-pub fn sendRawMessageWasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wasm_val_vec_t, _: [*c]main.wasm.c.wasm_val_vec_t) callconv(.c) ?*main.wasm.c.wasm_trap_t {
-	const instance = @as(*main.wasm.WasmInstance.Env, @ptrCast(@alignCast(env.?))).instance;
-	const message = instance.createSliceFromWasm(main.stackAllocator, args.*.data[1], args.*.data[2]) catch unreachable;
-	defer main.stackAllocator.free(message);
-	const userId: u32 = @intCast(args.*.data[0].of.i32);
+pub fn sendRawMessageWasm(_: *main.wasm.WasmInstance, userId: u32, message: []const u8) void {
 	const userList = getUserListAndIncreaseRefCount(main.stackAllocator);
 	defer freeUserListAndDecreaseRefCount(main.stackAllocator, userList);
 	for(userList) |user| {
@@ -300,16 +296,10 @@ pub fn sendRawMessageWasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wasm_val
 			break;
 		}
 	}
-	return null;
 }
 
-pub fn getSelectedPosition1Wasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wasm_val_vec_t, rets: [*c]main.wasm.c.wasm_val_vec_t) callconv(.c) ?*main.wasm.c.wasm_trap_t {
-	const instance = @as(*main.wasm.WasmInstance.Env, @ptrCast(@alignCast(env.?))).instance;
+pub fn getSelectedPosition1Wasm(instance: *main.wasm.WasmInstance, userId: u32, posX: u32, posY: u32, posZ: u32) bool {
 	var memory = main.wasm.c.wasm_memory_data(instance.memory);
-	const userId: u32 = @intCast(args.*.data[0].of.i32);
-	const posX: u32 = @intCast(args.*.data[1].of.i32);
-	const posY: u32 = @intCast(args.*.data[2].of.i32);
-	const posZ: u32 = @intCast(args.*.data[3].of.i32);
 	var exists: bool = false;
 	blk: switch(instance.currentSide) {
 		.server => {
@@ -336,20 +326,11 @@ pub fn getSelectedPosition1Wasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wa
 			}
 		}
 	}
-	rets.*.data[0] = .{
-		.kind = main.wasm.c.WASM_I32,
-		.of = .{.i32 = @intFromBool(exists)}
-	};
-	return null;
+	return exists;
 }
 
-pub fn getSelectedPosition2Wasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wasm_val_vec_t, rets: [*c]main.wasm.c.wasm_val_vec_t) callconv(.c) ?*main.wasm.c.wasm_trap_t {
-	const instance = @as(*main.wasm.WasmInstance.Env, @ptrCast(@alignCast(env.?))).instance;
+pub fn getSelectedPosition2Wasm(instance: *main.wasm.WasmInstance, userId: u32, posX: u32, posY: u32, posZ: u32) bool {
 	var memory = main.wasm.c.wasm_memory_data(instance.memory);
-	const userId: u32 = @intCast(args.*.data[0].of.i32);
-	const posX: u32 = @intCast(args.*.data[1].of.i32);
-	const posY: u32 = @intCast(args.*.data[2].of.i32);
-	const posZ: u32 = @intCast(args.*.data[3].of.i32);
 	var exists: bool = false;
 	blk: switch(instance.currentSide) {
 		.server => {
@@ -376,20 +357,10 @@ pub fn getSelectedPosition2Wasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wa
 			}
 		}
 	}
-	rets.*.data[0] = .{
-		.kind = main.wasm.c.WASM_I32,
-		.of = .{.i32 = @intFromBool(exists)}
-	};
-	return null;
+	return exists;
 }
 
-pub fn setSelectedPosition1Wasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wasm_val_vec_t, _: [*c]main.wasm.c.wasm_val_vec_t) callconv(.c) ?*main.wasm.c.wasm_trap_t {
-	const instance = @as(*main.wasm.WasmInstance.Env, @ptrCast(@alignCast(env.?))).instance;
-	const userId: u32 = @intCast(args.*.data[0].of.i32);
-	const exists: bool = args.*.data[1].of.i32 != 0;
-	const posX: i32 = args.*.data[2].of.i32;
-	const posY: i32 = args.*.data[3].of.i32;
-	const posZ: i32 = args.*.data[4].of.i32;
+pub fn setSelectedPosition1Wasm(instance: *main.wasm.WasmInstance, userId: u32, exists: bool, posX: i32, posY: i32, posZ: i32) void {
 	const pos: ?Vec3i = if(exists) .{posX, posY, posZ} else null;
 	switch(instance.currentSide) {
 		.server => {
@@ -410,16 +381,9 @@ pub fn setSelectedPosition1Wasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wa
 			}
 		}
 	}
-	return null;
 }
 
-pub fn setSelectedPosition2Wasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wasm_val_vec_t, _: [*c]main.wasm.c.wasm_val_vec_t) callconv(.c) ?*main.wasm.c.wasm_trap_t {
-	const instance = @as(*main.wasm.WasmInstance.Env, @ptrCast(@alignCast(env.?))).instance;
-	const userId: u32 = @intCast(args.*.data[0].of.i32);
-	const exists: bool = args.*.data[1].of.i32 != 0;
-	const posX: i32 = args.*.data[2].of.i32;
-	const posY: i32 = args.*.data[3].of.i32;
-	const posZ: i32 = args.*.data[4].of.i32;
+pub fn setSelectedPosition2Wasm(instance: *main.wasm.WasmInstance, userId: u32, exists: bool, posX: i32, posY: i32, posZ: i32) void {
 	const pos: ?Vec3i = if(exists) .{posX, posY, posZ} else null;
 	switch(instance.currentSide) {
 		.server => {
@@ -440,36 +404,9 @@ pub fn setSelectedPosition2Wasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wa
 			}
 		}
 	}
-	return null;
 }
 
-pub fn setPositionWasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wasm_val_vec_t, _: [*c]main.wasm.c.wasm_val_vec_t) callconv(.c) ?*main.wasm.c.wasm_trap_t {
-	const instance = @as(*main.wasm.WasmInstance.Env, @ptrCast(@alignCast(env.?))).instance;
-	const userId: u32 = @intCast(args.*.data[0].of.i32);
-	const posX: f64 = args.*.data[1].of.f64;
-	const posY: f64 = args.*.data[2].of.f64;
-	const posZ: f64 = args.*.data[3].of.f64;
-	switch(instance.currentSide) {
-		.server => {
-			const userList = getUserListAndIncreaseRefCount(main.stackAllocator);
-			defer freeUserListAndDecreaseRefCount(main.stackAllocator, userList);
-			for(userList) |user| {
-				if(user.id == userId) {
-					main.network.Protocols.genericUpdate.sendTPCoordinates(user.conn, .{posX, posY, posZ});
-					break;
-				}
-			}
-		},
-		.client => {
-			if(userId == main.game.Player.id) {
-				main.game.Player.super.pos = .{posX, posY, posZ};
-			}
-		}
-	}
-	return null;
-}
-
-pub fn setPositionWasm2(instance: *main.wasm.WasmInstance, userId: u32, posX: f64, posY: f64, posZ: f64) void {
+pub fn setPositionWasm(instance: *main.wasm.WasmInstance, userId: u32, posX: f64, posY: f64, posZ: f64) void {
 	switch(instance.currentSide) {
 		.server => {
 			const userList = getUserListAndIncreaseRefCount(main.stackAllocator);
@@ -489,13 +426,8 @@ pub fn setPositionWasm2(instance: *main.wasm.WasmInstance, userId: u32, posX: f6
 	}
 }
 
-pub fn getPositionWasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wasm_val_vec_t, _: [*c]main.wasm.c.wasm_val_vec_t) callconv(.c) ?*main.wasm.c.wasm_trap_t {
-	const instance = @as(*main.wasm.WasmInstance.Env, @ptrCast(@alignCast(env.?))).instance;
+pub fn getPositionWasm(instance: *main.wasm.WasmInstance, userId: u32, posX: u32, posY: u32, posZ: u32) void {
 	var memory = main.wasm.c.wasm_memory_data(instance.memory);
-	const userId: u32 = @intCast(args.*.data[0].of.i32);
-	const posX: u32 = @intCast(args.*.data[1].of.i32);
-	const posY: u32 = @intCast(args.*.data[2].of.i32);
-	const posZ: u32 = @intCast(args.*.data[3].of.i32);
 	switch(instance.currentSide) {
 		.server => {
 			const userList = getUserListAndIncreaseRefCount(main.stackAllocator);
@@ -519,7 +451,6 @@ pub fn getPositionWasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wasm_val_ve
 			}
 		}
 	}
-	return null;
 }
 
 pub const updatesPerSec: u32 = 20;

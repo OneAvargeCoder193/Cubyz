@@ -35,18 +35,17 @@ pub fn init() void {
 fn loadMod(file: std.fs.File) !*wasm.WasmInstance {
 	const mod = wasm.WasmInstance.init(main.globalAllocator, file) catch unreachable;
 	errdefer mod.deinit(main.globalAllocator);
-	mod.addImport("registerCommandImpl", &main.server.command.registerCommandWasm, [_]?*wasm.c.wasm_valtype_t{wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32()}, [_]?*wasm.c.wasm_valtype_t{}) catch {};
-	mod.addImport("sendMessageImpl", &main.server.sendRawMessageWasm, [_]?*wasm.c.wasm_valtype_t{wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32()}, [_]?*wasm.c.wasm_valtype_t{}) catch {};
-	mod.addImport("addHealthImpl", &main.items.Inventory.Sync.addHealthWasm, [_]?*wasm.c.wasm_valtype_t{wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_f32(), wasm.c.wasm_valtype_new_i32()}, [_]?*wasm.c.wasm_valtype_t{}) catch {};
-	mod.addImport("setSelectedPosition1Impl", &main.server.setSelectedPosition1Wasm, [_]?*wasm.c.wasm_valtype_t{wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32()}, [_]?*wasm.c.wasm_valtype_t{}) catch {};
-	mod.addImport("setSelectedPosition2Impl", &main.server.setSelectedPosition2Wasm, [_]?*wasm.c.wasm_valtype_t{wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32()}, [_]?*wasm.c.wasm_valtype_t{}) catch {};
-	mod.addImport("getSelectedPosition1Impl", &main.server.getSelectedPosition1Wasm, [_]?*wasm.c.wasm_valtype_t{wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32()}, [_]?*wasm.c.wasm_valtype_t{wasm.c.wasm_valtype_new_i32()}) catch {};
-	mod.addImport("getSelectedPosition2Impl", &main.server.getSelectedPosition2Wasm, [_]?*wasm.c.wasm_valtype_t{wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32()}, [_]?*wasm.c.wasm_valtype_t{wasm.c.wasm_valtype_new_i32()}) catch {};
-	mod.addImport("getPositionImpl", &main.server.getPositionWasm, [_]?*wasm.c.wasm_valtype_t{wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32()}, [_]?*wasm.c.wasm_valtype_t{}) catch {};
-	// mod.addImport("setPositionImpl", &main.server.setPositionWasm, [_]?*wasm.c.wasm_valtype_t{wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_f64(), wasm.c.wasm_valtype_new_f64(), wasm.c.wasm_valtype_new_f64()}, [_]?*wasm.c.wasm_valtype_t{}) catch {};
-	mod.addImport2("setPositionImpl", main.server.setPositionWasm2) catch {};
-	mod.addImport("parseBlockImpl", &main.blocks.parseBlockWasm, [_]?*wasm.c.wasm_valtype_t{wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32()}, [_]?*wasm.c.wasm_valtype_t{wasm.c.wasm_valtype_new_i32()}) catch {};
-	mod.addImport("setBlockImpl", &main.server.world_zig.setBlockWasm, [_]?*wasm.c.wasm_valtype_t{wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32(), wasm.c.wasm_valtype_new_i32()}, [_]?*wasm.c.wasm_valtype_t{}) catch {};
+	mod.addImport("registerCommandImpl", main.server.command.registerCommandWasm) catch {};
+	mod.addImport("sendMessageImpl", main.server.sendRawMessageWasm) catch {};
+	mod.addImport("addHealthImpl", main.items.Inventory.Sync.addHealthWasm) catch {};
+	mod.addImport("setSelectedPosition1Impl", main.server.setSelectedPosition1Wasm) catch {};
+	mod.addImport("setSelectedPosition2Impl", main.server.setSelectedPosition2Wasm) catch {};
+	mod.addImport("getSelectedPosition1Impl", main.server.getSelectedPosition1Wasm) catch {};
+	mod.addImport("getSelectedPosition2Impl", main.server.getSelectedPosition2Wasm) catch {};
+	mod.addImport("getPositionImpl", main.server.getPositionWasm) catch {};
+	mod.addImport("setPositionImpl", main.server.setPositionWasm) catch {};
+	mod.addImport("parseBlockImpl", main.blocks.parseBlockWasm) catch {};
+	mod.addImport("setBlockImpl", main.server.world_zig.setBlockWasm) catch {};
 	mod.instantiate() catch |err| {
 		std.log.err("Failed to instantiate module: {}\n", .{err});
 		return err;

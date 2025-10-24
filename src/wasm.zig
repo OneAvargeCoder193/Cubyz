@@ -84,6 +84,7 @@ pub const WasmInstance = struct {
 	fn getNumberArgs(comptime T: type) comptime_int {
 		return switch(@typeInfo(T)) {
 			.@"void" => 0,
+			.bool => 1,
 			.int => 1,
 			.float => 1,
 			.pointer => |ptr| switch(ptr.size) {
@@ -97,6 +98,7 @@ pub const WasmInstance = struct {
 	fn typeToValType(comptime T: type) [getNumberArgs(T)]c.wasm_valkind_t {
 		return switch(@typeInfo(T)) {
 			.@"void" => [_]c.wasm_valkind_t{},
+			.bool => [_]c.wasm_valkind_t{c.WASM_I32},
 			.int => |int| switch(int.bits) {
 				32 => [_]c.wasm_valkind_t{c.WASM_I32},
 				64 => [_]c.wasm_valkind_t{c.WASM_I64},
@@ -115,8 +117,9 @@ pub const WasmInstance = struct {
 		};
 	}
 
-	fn wasmToValue(self: *WasmInstance, comptime T: type, allocator: main.heap.NeverFailingAllocator, vals: [getNumberArgs(T)]c.wasm_val_t) T {
+	fn wasmToValue(self: *WasmInstance, comptime T: type, vals: [getNumberArgs(T)]c.wasm_val_t) T {
 		return switch(@typeInfo(T)) {
+			.bool => vals[0].of.i32 != 0,
 			.int => |int| switch(int.bits) {
 				32 => @as(T, @bitCast(vals[0].of.i32)),
 				64 => @as(T, @bitCast(vals[0].of.i64)),
@@ -128,7 +131,7 @@ pub const WasmInstance = struct {
 				else => std.debug.panic("Found illegal type {s} inside wasm import\n", .{@typeName(T)}),
 			},
 			.pointer => |ptr| switch(ptr.size) {
-				.slice => self.createSliceFromWasm(allocator, vals[0], vals[1]),
+				.slice => self.createSliceFromWasm(vals[0], vals[1]) catch unreachable,
 				else => std.debug.panic("Illegal type {s} inside wasm import\n", .{@typeName(T)}),
 			},
 			else => std.debug.panic("Illegal type {s} inside wasm import\n", .{@typeName(T)}),
@@ -137,6 +140,7 @@ pub const WasmInstance = struct {
 
 	fn valueToWasm(self: *WasmInstance, comptime T: type, val: T) [getNumberArgs(T)]c.wasm_val_t {
 		return switch(@typeInfo(T)) {
+			.bool => [_]c.wasm_val_t{.{.kind = c.WASM_I32, .of = .{.i32 = @intFromBool(val)}}},
 			.int => |int| switch(int.bits) {
 				32 => [_]c.wasm_val_t{.{.kind = c.WASM_I32, .of = .{.i32 = @bitCast(val)}}},
 				64 => [_]c.wasm_val_t{.{.kind = c.WASM_I64, .of = .{.i64 = @bitCast(val)}}},
@@ -148,14 +152,14 @@ pub const WasmInstance = struct {
 				else => std.debug.panic("Found illegal type {s} inside wasm import\n", .{@typeName(T)}),
 			},
 			.pointer => |ptr| switch(ptr.size) {
-				.slice => self.createWasmFromSlice2(val),
+				.slice => self.createWasmFromSlice(val),
 				else => std.debug.panic("Illegal type {s} inside wasm import\n", .{@typeName(T)}),
 			},
 			else => std.debug.panic("Illegal type {s} inside wasm import\n", .{@typeName(T)}),
 		};
 	}
 
-	pub fn addImport2(self: *WasmInstance, name: []const u8, comptime func: anytype) !void {
+	pub fn addImport(self: *WasmInstance, name: []const u8, comptime func: anytype) !void {
 		std.debug.assert(@typeInfo(@TypeOf(func)) == .@"fn");
 		const retValTypes: [getNumberArgs(@typeInfo(@TypeOf(func)).@"fn".return_type.?)]c.wasm_valkind_t = comptime blk: {
 			const args = typeToValType(@typeInfo(@TypeOf(func)).@"fn".return_type.?);
@@ -203,7 +207,7 @@ pub const WasmInstance = struct {
 				comptime var num = 0;
 				inline for(@typeInfo(@TypeOf(func)).@"fn".params[1..], 1..) |param, i| {
 					const argNumber = getNumberArgs(param.type.?);
-					arguments[i] = instance.wasmToValue(types[i], main.stackAllocator, args.*.data[num..][0..argNumber].*);
+					arguments[i] = instance.wasmToValue(types[i], args.*.data[num..][0..argNumber].*);
 					num += argNumber;
 				}
 				const res = @call(.auto, func, arguments);
@@ -217,9 +221,7 @@ pub const WasmInstance = struct {
 		try self.addImportImpl(name, &wrapper, valTypes, retTypes);
 	}
 
-	pub const addImport = addImportImpl;
-
-	pub fn addImportImpl(self: *WasmInstance, name: []const u8, func: c.wasm_func_callback_with_env_t, args: anytype, rets: anytype) !void {
+	fn addImportImpl(self: *WasmInstance, name: []const u8, func: c.wasm_func_callback_with_env_t, args: anytype, rets: anytype) !void {
 		std.debug.assert(@typeInfo(@TypeOf(args)).array.child == ?*c.wasm_valtype_t);
 		std.debug.assert(@typeInfo(@TypeOf(rets)).array.child == ?*c.wasm_valtype_t);
 		const importIndex = self.getImport(name) orelse return error.ImportNotFound;
@@ -286,25 +288,15 @@ pub const WasmInstance = struct {
 		try self.invoke("free", &args, &ret);
 	}
 
-	pub fn createSliceFromWasm(self: *WasmInstance, allocator: main.heap.NeverFailingAllocator, start: c.wasm_val_t, len: c.wasm_val_t) ![]u8 {
+	pub fn createSliceFromWasm(self: *WasmInstance, start: c.wasm_val_t, len: c.wasm_val_t) ![]u8 {
 		if(start.kind != c.WASM_I32) return error.TypeMustBeI32;
 		if(len.kind != c.WASM_I32) return error.TypeMustBeI32;
 		if(start.of.i32 < 0 or len.of.i32 <= 0) return &.{};
 		const memory = main.wasm.c.wasm_memory_data(self.memory);
-		return allocator.dupe(u8, memory[@intCast(start.of.i32)..@intCast(start.of.i32 + len.of.i32)]);
+		return memory[@intCast(start.of.i32)..@intCast(start.of.i32 + len.of.i32)];
 	}
 
-	pub fn createWasmFromSlice(self: *WasmInstance, slice: []const u8) struct{c.wasm_val_t, c.wasm_val_t} {
-		const memory = main.wasm.c.wasm_memory_data(self.memory);
-		const allocated = self.alloc(slice.len) catch unreachable;
-		@memcpy(memory[allocated..allocated + slice.len], slice);
-		return .{
-			.{.kind = c.WASM_I32, .of = .{.i32 = @intCast(allocated)}},
-			.{.kind = c.WASM_I32, .of = .{.i32 = @intCast(slice.len)}}
-		};
-	}
-
-	pub fn createWasmFromSlice2(self: *WasmInstance, slice: []const u8) [2]c.wasm_val_t {
+	pub fn createWasmFromSlice(self: *WasmInstance, slice: []const u8) [2]c.wasm_val_t {
 		const memory = main.wasm.c.wasm_memory_data(self.memory);
 		const allocated = self.alloc(slice.len) catch unreachable;
 		@memcpy(memory[allocated..allocated + slice.len], slice);

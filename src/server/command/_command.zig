@@ -19,7 +19,7 @@ pub fn init() void {
 	commands = .init(main.globalAllocator.allocator);
 	const commandList = @import("_list.zig");
 	inline for(@typeInfo(commandList).@"struct".decls) |decl| {
-		commands.put(decl.name, .{
+		commands.put(main.globalAllocator.dupe(u8, decl.name), .{
 			.name = main.globalAllocator.dupe(u8, decl.name),
 			.description = main.globalAllocator.dupe(u8, @field(commandList, decl.name).description),
 			.usage = main.globalAllocator.dupe(u8, @field(commandList, decl.name).usage),
@@ -33,11 +33,12 @@ pub fn init() void {
 }
 
 pub fn deinit() void {
-	var iter = commands.valueIterator();
+	var iter = commands.iterator();
 	while(iter.next()) |command| {
-		main.globalAllocator.free(command.name);
-		main.globalAllocator.free(command.description);
-		main.globalAllocator.free(command.usage);
+		main.globalAllocator.free(command.value_ptr.*.name);
+		main.globalAllocator.free(command.value_ptr.*.description);
+		main.globalAllocator.free(command.value_ptr.*.usage);
+		main.globalAllocator.free(command.key_ptr.*);
 	}
 	commands.deinit();
 }
@@ -74,17 +75,12 @@ pub fn execute(msg: []const u8, source: *User) void {
 	}
 }
 
-pub fn registerCommandWasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wasm_val_vec_t, _: [*c]main.wasm.c.wasm_val_vec_t) callconv(.c) ?*main.wasm.c.wasm_trap_t {
-	const instance = @as(*main.wasm.WasmInstance.Env, @ptrCast(@alignCast(env.?))).instance;
-	const name = instance.createSliceFromWasm(main.globalAllocator, args.*.data[0], args.*.data[1]) catch unreachable;
-	const description = instance.createSliceFromWasm(main.globalAllocator, args.*.data[2], args.*.data[3]) catch unreachable;
-	const usage = instance.createSliceFromWasm(main.globalAllocator, args.*.data[3], args.*.data[4]) catch unreachable;
-	commands.put(name, .{
-		.name = name,
-		.description = description,
-		.usage = usage,
+pub fn registerCommandWasm(instance: *main.wasm.WasmInstance, name: []const u8, description: []const u8, usage: []const u8) void {
+	commands.put(main.globalAllocator.dupe(u8, name), .{
+		.name = main.globalAllocator.dupe(u8, name),
+		.description = main.globalAllocator.dupe(u8, description),
+		.usage = main.globalAllocator.dupe(u8, usage),
 		.exec = .{.mod = instance},
 	}) catch unreachable;
 	std.log.debug("Registered command: '/{s}'", .{name});
-	return null;
 }
