@@ -319,9 +319,9 @@ pub fn getSelectedPosition1Wasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wa
 				if(user.id == userId) {
 					const pos = user.worldEditData.selectionPosition1 orelse break :blk;
 					exists = true;
-					std.mem.writeInt(u64, memory[posX..][0..8], @bitCast(pos[0]), .little);
-					std.mem.writeInt(u64, memory[posY..][0..8], @bitCast(pos[1]), .little);
-					std.mem.writeInt(u64, memory[posZ..][0..8], @bitCast(pos[2]), .little);
+					std.mem.writeInt(u32, memory[posX..][0..4], @bitCast(pos[0]), .little);
+					std.mem.writeInt(u32, memory[posY..][0..4], @bitCast(pos[1]), .little);
+					std.mem.writeInt(u32, memory[posZ..][0..4], @bitCast(pos[2]), .little);
 					break;
 				}
 			}
@@ -330,13 +330,13 @@ pub fn getSelectedPosition1Wasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wa
 			if(userId == main.game.Player.id) {
 				const pos = main.game.Player.selectionPosition1 orelse break :blk;
 				exists = true;
-				std.mem.writeInt(u64, memory[posX..][0..8], @bitCast(pos[0]), .little);
-				std.mem.writeInt(u64, memory[posY..][0..8], @bitCast(pos[1]), .little);
-				std.mem.writeInt(u64, memory[posZ..][0..8], @bitCast(pos[2]), .little);
+				std.mem.writeInt(u32, memory[posX..][0..4], @bitCast(pos[0]), .little);
+				std.mem.writeInt(u32, memory[posY..][0..4], @bitCast(pos[1]), .little);
+				std.mem.writeInt(u32, memory[posZ..][0..4], @bitCast(pos[2]), .little);
 			}
 		}
 	}
-	rets.data.*[0] = .{
+	rets.*.data[0] = .{
 		.kind = main.wasm.c.WASM_I32,
 		.of = .{.i32 = @intFromBool(exists)}
 	};
@@ -359,9 +359,9 @@ pub fn getSelectedPosition2Wasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wa
 				if(user.id == userId) {
 					const pos = user.worldEditData.selectionPosition2 orelse break :blk;
 					exists = true;
-					std.mem.writeInt(u64, memory[posX..][0..8], @bitCast(pos[0]), .little);
-					std.mem.writeInt(u64, memory[posY..][0..8], @bitCast(pos[1]), .little);
-					std.mem.writeInt(u64, memory[posZ..][0..8], @bitCast(pos[2]), .little);
+					std.mem.writeInt(u32, memory[posX..][0..4], @bitCast(pos[0]), .little);
+					std.mem.writeInt(u32, memory[posY..][0..4], @bitCast(pos[1]), .little);
+					std.mem.writeInt(u32, memory[posZ..][0..4], @bitCast(pos[2]), .little);
 					break;
 				}
 			}
@@ -370,13 +370,13 @@ pub fn getSelectedPosition2Wasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wa
 			if(userId == main.game.Player.id) {
 				const pos = main.game.Player.selectionPosition2 orelse break :blk;
 				exists = true;
-				std.mem.writeInt(u64, memory[posX..][0..8], @bitCast(pos[0]), .little);
-				std.mem.writeInt(u64, memory[posY..][0..8], @bitCast(pos[1]), .little);
-				std.mem.writeInt(u64, memory[posZ..][0..8], @bitCast(pos[2]), .little);
+				std.mem.writeInt(u32, memory[posX..][0..4], @bitCast(pos[0]), .little);
+				std.mem.writeInt(u32, memory[posY..][0..4], @bitCast(pos[1]), .little);
+				std.mem.writeInt(u32, memory[posZ..][0..4], @bitCast(pos[2]), .little);
 			}
 		}
 	}
-	rets.data.*[0] = .{
+	rets.*.data[0] = .{
 		.kind = main.wasm.c.WASM_I32,
 		.of = .{.i32 = @intFromBool(exists)}
 	};
@@ -405,7 +405,7 @@ pub fn setSelectedPosition1Wasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wa
 		},
 		.client => {
 			if(userId == main.game.Player.id) {
-				main.game.Player.selectedPosition1 = pos;
+				main.game.Player.selectionPosition1 = pos;
 				main.network.Protocols.genericUpdate.sendWorldEditPos(main.game.world.?.conn, .selectedPos1, pos);
 			}
 		}
@@ -435,7 +435,7 @@ pub fn setSelectedPosition2Wasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wa
 		},
 		.client => {
 			if(userId == main.game.Player.id) {
-				main.game.Player.selectedPosition2 = pos;
+				main.game.Player.selectionPosition2 = pos;
 				main.network.Protocols.genericUpdate.sendWorldEditPos(main.game.world.?.conn, .selectedPos2, pos);
 			}
 		}
@@ -467,6 +467,26 @@ pub fn setPositionWasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wasm_val_ve
 		}
 	}
 	return null;
+}
+
+pub fn setPositionWasm2(instance: *main.wasm.WasmInstance, userId: u32, posX: f64, posY: f64, posZ: f64) void {
+	switch(instance.currentSide) {
+		.server => {
+			const userList = getUserListAndIncreaseRefCount(main.stackAllocator);
+			defer freeUserListAndDecreaseRefCount(main.stackAllocator, userList);
+			for(userList) |user| {
+				if(user.id == userId) {
+					main.network.Protocols.genericUpdate.sendTPCoordinates(user.conn, .{posX, posY, posZ});
+					break;
+				}
+			}
+		},
+		.client => {
+			if(userId == main.game.Player.id) {
+				main.game.Player.super.pos = .{posX, posY, posZ};
+			}
+		}
+	}
 }
 
 pub fn getPositionWasm(env: ?*anyopaque, args: [*c]const main.wasm.c.wasm_val_vec_t, _: [*c]main.wasm.c.wasm_val_vec_t) callconv(.c) ?*main.wasm.c.wasm_trap_t {

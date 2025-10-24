@@ -81,7 +81,145 @@ pub const WasmInstance = struct {
 		self.memory = c.wasm_extern_as_memory(self.getExport("memory"));
 	}
 
-	pub fn addImport(self: *WasmInstance, name: []const u8, func: c.wasm_func_callback_with_env_t, args: anytype, rets: anytype) !void {
+	fn getNumberArgs(comptime T: type) comptime_int {
+		return switch(@typeInfo(T)) {
+			.@"void" => 0,
+			.int => 1,
+			.float => 1,
+			.pointer => |ptr| switch(ptr.size) {
+				.slice => 2,
+				else => std.debug.panic("Illegal type {s} inside wasm import\n", .{@typeName(T)})
+			},
+			else => std.debug.panic("Illegal type {s} inside wasm import\n", .{@typeName(T)}),
+		};
+	}
+
+	fn typeToValType(comptime T: type) [getNumberArgs(T)]c.wasm_valkind_t {
+		return switch(@typeInfo(T)) {
+			.@"void" => [_]c.wasm_valkind_t{},
+			.int => |int| switch(int.bits) {
+				32 => [_]c.wasm_valkind_t{c.WASM_I32},
+				64 => [_]c.wasm_valkind_t{c.WASM_I64},
+				else => std.debug.panic("Found illegal type {s} inside wasm import\n", .{@typeName(T)}),
+			},
+			.float => |float| switch(float.bits) {
+				32 => [_]c.wasm_valkind_t{c.WASM_F32},
+				64 => [_]c.wasm_valkind_t{c.WASM_F64},
+				else => std.debug.panic("Found illegal type {s} inside wasm import\n", .{@typeName(T)}),
+			},
+			.pointer => |ptr| switch(ptr.size) {
+				.slice => [_]c.wasm_valkind_t{c.WASM_I32, c.WASM_I32},
+				else => std.debug.panic("Illegal type {s} inside wasm import\n", .{@typeName(T)}),
+			},
+			else => std.debug.panic("Illegal type {s} inside wasm import\n", .{@typeName(T)}),
+		};
+	}
+
+	fn wasmToValue(self: *WasmInstance, comptime T: type, allocator: main.heap.NeverFailingAllocator, vals: [getNumberArgs(T)]c.wasm_val_t) T {
+		return switch(@typeInfo(T)) {
+			.int => |int| switch(int.bits) {
+				32 => @as(T, @bitCast(vals[0].of.i32)),
+				64 => @as(T, @bitCast(vals[0].of.i64)),
+				else => std.debug.panic("Found illegal type {s} inside wasm import\n", .{@typeName(T)}),
+			},
+			.float => |float| switch(float.bits) {
+				32 => vals[0].of.f32,
+				64 => vals[0].of.f64,
+				else => std.debug.panic("Found illegal type {s} inside wasm import\n", .{@typeName(T)}),
+			},
+			.pointer => |ptr| switch(ptr.size) {
+				.slice => self.createSliceFromWasm(allocator, vals[0], vals[1]),
+				else => std.debug.panic("Illegal type {s} inside wasm import\n", .{@typeName(T)}),
+			},
+			else => std.debug.panic("Illegal type {s} inside wasm import\n", .{@typeName(T)}),
+		};
+	}
+
+	fn valueToWasm(self: *WasmInstance, comptime T: type, val: T) [getNumberArgs(T)]c.wasm_val_t {
+		return switch(@typeInfo(T)) {
+			.int => |int| switch(int.bits) {
+				32 => [_]c.wasm_val_t{.{.kind = c.WASM_I32, .of = .{.i32 = @bitCast(val)}}},
+				64 => [_]c.wasm_val_t{.{.kind = c.WASM_I64, .of = .{.i64 = @bitCast(val)}}},
+				else => std.debug.panic("Found illegal type {s} inside wasm import\n", .{@typeName(T)}),
+			},
+			.float => |float| switch(float.bits) {
+				32 => [_]c.wasm_val_t{.{.kind = c.WASM_F32, .of = .{.f32 = val}}},
+				64 => [_]c.wasm_val_t{.{.kind = c.WASM_F64, .of = .{.f64 = val}}},
+				else => std.debug.panic("Found illegal type {s} inside wasm import\n", .{@typeName(T)}),
+			},
+			.pointer => |ptr| switch(ptr.size) {
+				.slice => self.createWasmFromSlice2(val),
+				else => std.debug.panic("Illegal type {s} inside wasm import\n", .{@typeName(T)}),
+			},
+			else => std.debug.panic("Illegal type {s} inside wasm import\n", .{@typeName(T)}),
+		};
+	}
+
+	pub fn addImport2(self: *WasmInstance, name: []const u8, comptime func: anytype) !void {
+		std.debug.assert(@typeInfo(@TypeOf(func)) == .@"fn");
+		const retValTypes: [getNumberArgs(@typeInfo(@TypeOf(func)).@"fn".return_type.?)]c.wasm_valkind_t = comptime blk: {
+			const args = typeToValType(@typeInfo(@TypeOf(func)).@"fn".return_type.?);
+			if(args.len == 2) {
+				std.debug.panic("Illegal return value in wasm {s}\n", .{@typeName(@typeInfo(@TypeOf(func)).@"fn".return_type.?)});
+			} else if (args.len == 1) {
+				break :blk [_]c.wasm_valkind_t{args[0]};
+			}
+			break :blk [_]c.wasm_valkind_t{};
+		};
+		const argValTypes = comptime blk: {
+			var num = 0;
+			for(@typeInfo(@TypeOf(func)).@"fn".params[1..]) |param| {
+				num += getNumberArgs(param.type.?);
+			}
+			var arguments: [num]c.wasm_valkind_t = undefined;
+			num = 0;
+			for(@typeInfo(@TypeOf(func)).@"fn".params[1..]) |param| {
+				const argNumber = getNumberArgs(param.type.?);
+				arguments[num..][0..argNumber].* = typeToValType(param.type.?);
+				num += argNumber;
+			}
+			break :blk arguments;
+		};
+		var valTypes: [argValTypes.len]?*c.wasm_valtype_t = undefined;
+		for(0..argValTypes.len) |i| {
+			valTypes[i] = c.wasm_valtype_new(argValTypes[i]);
+		}
+		var retTypes: [retValTypes.len]?*c.wasm_valtype_t = undefined;
+		for(0..retValTypes.len) |i| {
+			retTypes[i] = c.wasm_valtype_new(retValTypes[i]);
+		}
+		const wrapper = struct {
+			pub fn wrapped(env: ?*anyopaque, args: [*c]const c.wasm_val_vec_t, rets: [*c]c.wasm_val_vec_t) callconv(.c) ?*c.wasm_trap_t {
+				const instance = @as(*main.wasm.WasmInstance.Env, @ptrCast(@alignCast(env.?))).instance;
+				const ArgTuple, const types = comptime blk: {
+					var types: [@typeInfo(@TypeOf(func)).@"fn".params.len]type = undefined;
+					for(@typeInfo(@TypeOf(func)).@"fn".params, 0..) |param, i| {
+						types[i] = param.type.?;
+					}
+					break :blk .{std.meta.Tuple(&types), types};
+				};
+				var arguments: ArgTuple = undefined;
+				arguments[0] = instance;
+				comptime var num = 0;
+				inline for(@typeInfo(@TypeOf(func)).@"fn".params[1..], 1..) |param, i| {
+					const argNumber = getNumberArgs(param.type.?);
+					arguments[i] = instance.wasmToValue(types[i], main.stackAllocator, args.*.data[num..][0..argNumber].*);
+					num += argNumber;
+				}
+				const res = @call(.auto, func, arguments);
+				if(@typeInfo(@TypeOf(func)).@"fn".return_type.? != void) {
+					const out = instance.valueToWasm(@typeInfo(@TypeOf(func)).@"fn".return_type.?, res);
+					c.wasm_val_vec_new(rets, out.len, &out);
+				}
+				return null;
+			}
+		}.wrapped;
+		try self.addImportImpl(name, &wrapper, valTypes, retTypes);
+	}
+
+	pub const addImport = addImportImpl;
+
+	pub fn addImportImpl(self: *WasmInstance, name: []const u8, func: c.wasm_func_callback_with_env_t, args: anytype, rets: anytype) !void {
 		std.debug.assert(@typeInfo(@TypeOf(args)).array.child == ?*c.wasm_valtype_t);
 		std.debug.assert(@typeInfo(@TypeOf(rets)).array.child == ?*c.wasm_valtype_t);
 		const importIndex = self.getImport(name) orelse return error.ImportNotFound;
@@ -161,6 +299,16 @@ pub const WasmInstance = struct {
 		const allocated = self.alloc(slice.len) catch unreachable;
 		@memcpy(memory[allocated..allocated + slice.len], slice);
 		return .{
+			.{.kind = c.WASM_I32, .of = .{.i32 = @intCast(allocated)}},
+			.{.kind = c.WASM_I32, .of = .{.i32 = @intCast(slice.len)}}
+		};
+	}
+
+	pub fn createWasmFromSlice2(self: *WasmInstance, slice: []const u8) [2]c.wasm_val_t {
+		const memory = main.wasm.c.wasm_memory_data(self.memory);
+		const allocated = self.alloc(slice.len) catch unreachable;
+		@memcpy(memory[allocated..allocated + slice.len], slice);
+		return [_]c.wasm_val_t{
 			.{.kind = c.WASM_I32, .of = .{.i32 = @intCast(allocated)}},
 			.{.kind = c.WASM_I32, .of = .{.i32 = @intCast(slice.len)}}
 		};
