@@ -235,7 +235,7 @@ pub const Sync = struct { // MARK: Sync
 					if(self.managed == .internallyManaged) {
 						if(self.inv.type.shouldDepositToUserOnClose()) {
 							const playerInventory = getInventoryFromSource(.{.playerInventory = user.id}) orelse @panic("Could not find player inventory");
-							Sync.ServerSide.executeCommand(.{.depositOrDrop = .{.dest = playerInventory, .source = self.inv}}, null);
+							Sync.ServerSide.executeCommand(.{.depositOrDrop = .{.dest = playerInventory, .source = self.inv, .dropLocation = user.player.pos}}, null);
 						}
 						self.deinit();
 					}
@@ -1573,6 +1573,7 @@ pub const Command = struct { // MARK: Command
 	const DepositOrDrop = struct { // MARK: DepositOrDrop
 		dest: Inventory,
 		source: Inventory,
+		dropLocation: Vec3d,
 
 		pub fn run(self: DepositOrDrop, allocator: NeverFailingAllocator, cmd: *Command, side: Side, user: ?*main.server.User, _: Gamemode) error{serverFailure}!void {
 			std.debug.assert(self.dest.type == .normal);
@@ -1605,8 +1606,8 @@ pub const Command = struct { // MARK: Command
 					}
 				}
 				if(side == .server) {
-					const direction = vec.rotateZ(vec.rotateX(Vec3f{0, 1, 0}, -user.?.player.rot[0]), -user.?.player.rot[2]);
-					main.server.world.?.drop(sourceStack.clone(), user.?.player.pos, direction, 20);
+					const direction = if(user) |_user| vec.rotateZ(vec.rotateX(Vec3f{0, 1, 0}, -_user.player.rot[0]), -_user.player.rot[2]) else Vec3f{0, 0, 0};
+					main.server.world.?.drop(sourceStack.clone(), self.dropLocation, direction, 20);
 				}
 				cmd.executeBaseOperation(allocator, .{.delete = .{
 					.source = .{.inv = self.source, .slot = @intCast(sourceSlot)},
@@ -1626,6 +1627,7 @@ pub const Command = struct { // MARK: Command
 			return .{
 				.dest = Sync.getInventory(destId, side, user) orelse return error.InventoryNotFound,
 				.source = Sync.getInventory(sourceId, side, user) orelse return error.InventoryNotFound,
+				.dropLocation = (user orelse return error.Invalid).player.pos,
 			};
 		}
 	};
@@ -2077,7 +2079,7 @@ pub fn distribute(carried: Inventory, destinationInventories: []const Inventory,
 }
 
 pub fn depositOrDrop(dest: Inventory, source: Inventory) void {
-	Sync.ClientSide.executeCommand(.{.depositOrDrop = .{.dest = dest, .source = source}});
+	Sync.ClientSide.executeCommand(.{.depositOrDrop = .{.dest = dest, .source = source, .dropLocation = undefined}});
 }
 
 pub fn depositToAny(source: Inventory, sourceSlot: u32, dest: Inventory, amount: u16) void {
