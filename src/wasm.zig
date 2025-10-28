@@ -260,7 +260,7 @@ pub const WasmInstance = struct {
 		return null;
 	}
 
-	pub fn invoke(self: *WasmInstance, comptime name: []const u8, args: anytype, comptime Return: type) !Return {
+	pub fn invoke(self: *WasmInstance, name: []const u8, args: anytype, comptime Return: type) !Return {
 		comptime var len = 0;
 		inline for(args) |arg| {
 			len += getNumberArgs(@TypeOf(arg));
