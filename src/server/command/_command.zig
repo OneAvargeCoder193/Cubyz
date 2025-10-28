@@ -4,10 +4,14 @@ const main = @import("main");
 const User = main.server.User;
 
 pub const Command = struct {
-	exec: union(enum) {
-		func: *const fn(args: []const u8, source: *User) void,
-		mod: *main.wasm.WasmInstance,
-	},
+	const Exec = main.wasm.ModdableFunction(fn(args: []const u8, source: *User) void, struct {
+		fn wasmWrapper(instance: *main.wasm.WasmInstance, func: *main.wasm.c.wasm_func_t, args: anytype) void {
+			instance.currentSide = .server;
+			instance.invokeFunc(func, .{args[0], args[1].id}, void) catch {};
+		}
+	}.wasmWrapper);
+
+	exec: Exec,
 	name: []const u8,
 	description: []const u8,
 	usage: []const u8,
@@ -23,7 +27,7 @@ pub fn init() void {
 			.name = main.globalAllocator.dupe(u8, decl.name),
 			.description = main.globalAllocator.dupe(u8, @field(commandList, decl.name).description),
 			.usage = main.globalAllocator.dupe(u8, @field(commandList, decl.name).usage),
-			.exec = .{.func = &@field(commandList, decl.name).execute},
+			.exec = Command.Exec.initFromCode(&@field(commandList, decl.name).execute),
 		}) catch unreachable;
 		std.log.debug("Registered command: '/{s}'", .{decl.name});
 	}
@@ -48,27 +52,18 @@ pub fn execute(msg: []const u8, source: *User) void {
 	const command = msg[0..end];
 	if(commands.get(command)) |cmd| {
 		source.sendMessage("#00ff00Executing Command /{s}", .{msg});
-		switch(cmd.exec) {
-			.func => |exec| {
-				exec(msg[@min(end + 1, msg.len)..], source);
-			},
-			.mod => |instance| {
-				const args = msg[@min(end + 1, msg.len)..];
-				instance.currentSide = .server;
-				instance.invoke("executeCommand", .{command, args, source.id}, void) catch unreachable;
-			}
-		}
+		cmd.exec.invoke(.{msg[@min(end + 1, msg.len)..], source});
 	} else {
 		source.sendMessage("#ff0000Unrecognized Command \"{s}\"", .{command});
 	}
 }
 
-pub fn registerCommandWasm(instance: *main.wasm.WasmInstance, name: []const u8, description: []const u8, usage: []const u8) void {
+pub fn registerCommandWasm(instance: *main.wasm.WasmInstance, funcName: []const u8, name: []const u8, description: []const u8, usage: []const u8) void {
 	commands.put(main.globalAllocator.dupe(u8, name), .{
 		.name = main.globalAllocator.dupe(u8, name),
 		.description = main.globalAllocator.dupe(u8, description),
 		.usage = main.globalAllocator.dupe(u8, usage),
-		.exec = .{.mod = instance},
+		.exec = Command.Exec.initFromWasm(instance, funcName) catch unreachable,
 	}) catch unreachable;
 	std.log.debug("Registered command: '/{s}'", .{name});
 }

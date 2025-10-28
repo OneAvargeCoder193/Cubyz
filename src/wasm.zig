@@ -20,6 +20,39 @@ pub fn deinit() void {
 	c.wasm_store_delete(store);
 }
 
+pub fn ModdableFunction(comptime FuncType: type, wasmWrapper: fn(instance: *WasmInstance, func: *c.wasm_func_t, args: anytype) @typeInfo(FuncType).@"fn".return_type.?) type {
+	return union(enum) {
+		code: *const FuncType,
+		modded: struct {instance: *WasmInstance, func: *c.wasm_func_t},
+
+		pub fn initFromCode(func: *const FuncType) @This() {
+			return .{
+				.code = func,
+			};
+		}
+
+		pub fn initFromWasm(instance: *WasmInstance, name: []const u8) !@This() {
+			return .{
+				.modded = .{
+					.instance = instance,
+					.func = try instance.getFunc(name),
+				},
+			};
+		}
+
+		pub fn invoke(self: @This(), args: anytype) @typeInfo(FuncType).@"fn".return_type.? {
+			switch(self) {
+				.code => |func| {
+					return @call(.auto, func, args);
+				},
+				.modded => |info| {
+					return wasmWrapper(info.instance, info.func, args);
+				}
+			}
+		}
+	};
+}
+
 pub const WasmInstance = struct {
 	module: ?*c.wasm_module_t,
 	instanciated: bool = false,
@@ -276,10 +309,34 @@ pub const WasmInstance = struct {
 		return self.wasmToValue(Return, ret[0..getNumberArgs(Return)].*);
 	}
 
+	pub fn invokeFunc(self: *WasmInstance, func: *c.wasm_func_t, args: anytype, comptime Return: type) !Return {
+		comptime var len = 0;
+		inline for(args) |arg| {
+			len += getNumberArgs(@TypeOf(arg));
+		}
+		var arguments: [len]c.wasm_val_t = undefined;
+		len = 0;
+		inline for(args) |arg| {
+			const argNumber = getNumberArgs(@TypeOf(arg));
+			arguments[len..][0..argNumber].* = self.valueToWasm(@TypeOf(arg), arg);
+			len += argNumber;
+		}
+		var ret = try invokeFuncImpl(func, &arguments);
+		return self.wasmToValue(Return, ret[0..getNumberArgs(Return)].*);
+	}
+
 	pub fn invokeImpl(self: *WasmInstance, name: []const u8, args: []c.wasm_val_t) ![]c.wasm_val_t {
+		const func = try self.getFunc(name);
+		return invokeFuncImpl(func, args);
+	}
+
+	fn getFunc(self: *WasmInstance, name: []const u8) !*c.wasm_func_t {
 		const externIndex = self.getExport(name) orelse return error.FunctionDoesNotExist;
 		const externValue = self.exports.data[externIndex];
-		const func = c.wasm_extern_as_func(externValue) orelse return error.ExportNotFunction;
+		return c.wasm_extern_as_func(externValue) orelse return error.ExportNotFunction;
+	}
+
+	fn invokeFuncImpl(func: *c.wasm_func_t, args: []c.wasm_val_t) ![]c.wasm_val_t {
 		const funcType = c.wasm_func_type(func);
 		var argVec: c.wasm_val_vec_t = .{.data = args.ptr, .size = args.len};
 		const size = c.wasm_functype_results(funcType).*.size;
@@ -287,6 +344,7 @@ pub const WasmInstance = struct {
 		c.wasm_val_vec_new_uninitialized(&retVec, size);
 		if(c.wasm_func_call(func, &argVec, &retVec)) |trap| {
 			printError("Failed to call function: {s}\n", trap);
+			return error.FailedFunctionCall;
 		}
 		return retVec.data[0..retVec.size];
 	}
