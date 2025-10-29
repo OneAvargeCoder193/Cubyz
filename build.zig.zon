@@ -48,19 +48,19 @@
         },
         .wasmer_x86_64_macos = .{
             .url = "https://github.com/wasmerio/wasmer/releases/download/v6.1.0/wasmer-darwin-amd64.tar.gz",
-            .hash = "N-V-__8AAGq10gsjBULCIbHMcnzzUUv5B8XEKYhilXuDpxqa",
+            .hash = "N-V-__8AALL8oxRhqwmSoZCwBxDerhzXfWxSnMOsqTp2E99X",
         },
         .wasmer_aarch64_macos = .{
             .url = "https://github.com/wasmerio/wasmer/releases/download/v6.1.0/wasmer-darwin-arm64.tar.gz",
-            .hash = "N-V-__8AAGq10gsjBULCIbHMcnzzUUv5B8XEKYhilXuDpxqa",
+            .hash = "N-V-__8AAL5huRPmeR4NnEpsWueGw5RarpKIo2zSWSZykI6w",
         },
         .wasmer_x86_64_linux = .{
             .url = "https://github.com/wasmerio/wasmer/releases/download/v6.1.0/wasmer-linux-amd64.tar.gz",
-            .hash = "N-V-__8AAGq10gsjBULCIbHMcnzzUUv5B8XEKYhilXuDpxqa",
+            .hash = "N-V-__8AAH7B3BdJXSUcXWUwR4F12RQLHmvIt3rGBk1R7ewC",
         },
         .wasmer_aarch64_linux = .{
             .url = "https://github.com/wasmerio/wasmer/releases/download/v6.1.0/wasmer-linux-aarch64.tar.gz",
-            .hash = "N-V-__8AAGq10gsjBULCIbHMcnzzUUv5B8XEKYhilXuDpxqa",
+            .hash = "N-V-__8AAHT5mhMaeHf5LR6Xm4K8oRi5DY3ySrzNzxYu1EMF",
         },
         .wasmer_x86_64_windows = .{
             .url = "https://github.com/wasmerio/wasmer/releases/download/v6.1.0/wasmer-windows-gnu64.tar.gz",
