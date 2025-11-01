@@ -111,9 +111,9 @@ const GuiCommandQueue = struct { // MARK: GuiCommandQueue
 
 pub const Callback = struct {
 	pub const CallbackFunc = main.wasm.ModdableFunction(fn(usize) void, struct{
-		fn wrapper(instance: *main.wasm.WasmInstance, func: *main.wasm.c.wasm_func_t, _: anytype) void {
+		fn wrapper(instance: *main.wasm.WasmInstance, func: *main.wasm.c.wasm_func_t, args: anytype) void {
 			instance.currentSide = .client;
-			instance.invokeFunc(func, .{}, void) catch {};
+			instance.invokeFunc(func, .{@as(u32, @intCast(args[0]))}, void) catch {};
 		}
 	}.wrapper);
 	callback: ?CallbackFunc = null,

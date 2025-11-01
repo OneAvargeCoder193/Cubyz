@@ -75,10 +75,10 @@ pub fn onOpen() void {
 	gamemodeInput = Button.initText(.{0, 0}, 128, @tagName(gamemode), .{.callback = .initFromCode(&gamemodeCallback)});
 	list.add(gamemodeInput);
 
-	list.add(CheckBox.init(.{0, 0}, 128, "Allow Cheats", true, &allowCheatsCallback));
+	list.add(CheckBox.init(.{0, 0}, 128, "Allow Cheats", true, .initFromCode(&allowCheatsCallback)));
 
 	if(!build_options.isTaggedRelease) {
-		list.add(CheckBox.init(.{0, 0}, 128, "Testing mode (for developers)", false, &testingModeCallback));
+		list.add(CheckBox.init(.{0, 0}, 128, "Testing mode (for developers)", false, .initFromCode(&testingModeCallback)));
 	}
 
 	list.add(Button.initText(.{0, 0}, 128, "Create World", .{.callback = .initFromCode(&createWorld)}));

@@ -27,13 +27,20 @@ var textureEmptyNormal: Texture = undefined;
 var textureEmptyHovered: Texture = undefined;
 var textureEmptyPressed: Texture = undefined;
 
+const CheckBoxCallback = main.wasm.ModdableFunction(fn(bool) void, struct{
+	fn wrapper(instance: *main.wasm.WasmInstance, func: *main.wasm.c.wasm_func_t, args: anytype) void {
+		instance.currentSide = .client;
+		instance.invokeFunc(func, args, void) catch {};
+	}
+}.wrapper);
+
 index: gui.ComponentIndex,
 pos: Vec2f,
 size: Vec2f,
 state: bool = false,
 pressed: bool = false,
 hovered: bool = false,
-onAction: *const fn(bool) void,
+onAction: CheckBoxCallback,
 label: *Label,
 
 pub fn __init() void {
@@ -54,7 +61,7 @@ pub fn __deinit() void {
 	textureEmptyPressed.deinit();
 }
 
-pub fn init(pos: Vec2f, width: f32, text: []const u8, initialValue: bool, onAction: *const fn(bool) void) *CheckBox {
+pub fn init(pos: Vec2f, width: f32, text: []const u8, initialValue: bool, onAction: CheckBoxCallback) *CheckBox {
 	const label = Label.init(undefined, width - 3*border - boxSize, text, .left);
 	const self, const index = gui.createComponent(CheckBox);
 	self.* = CheckBox{
@@ -91,7 +98,7 @@ pub fn mainButtonReleased(self: *CheckBox, mousePosition: Vec2f) void {
 		self.pressed = false;
 		if(GuiComponent.contains(self.pos, self.size, mousePosition)) {
 			self.state = !self.state;
-			self.onAction(self.state);
+			self.onAction.invoke(.{self.state});
 		}
 	}
 }
@@ -120,4 +127,9 @@ pub fn render(self: *CheckBox, mousePosition: Vec2f) void {
 	const textPos = self.pos + Vec2f{boxSize/2, 0} + self.size/@as(Vec2f, @splat(2.0)) - self.label.size/@as(Vec2f, @splat(2.0));
 	self.label.pos = textPos;
 	self.label.render(mousePosition - textPos);
+}
+
+pub fn initWasm(instance: *main.wasm.WasmInstance, posX: f32, posY: f32, width: f32, text: []const u8, initalValue: bool, callback: []const u8) u32 {
+	const label = init(.{posX, posY}, width, text, initalValue, CheckBoxCallback.initFromWasm(instance, callback) catch unreachable);
+	return @intFromEnum(label.index);
 }

@@ -68,9 +68,11 @@ fn loadMod(file: std.fs.File) !*wasm.WasmInstance {
 	mod.addImport("guiComponentDeinitImpl", main.gui.deinitComponentWasm) catch {};
 
 	// Individual gui component functions
-	mod.addImport("initLabelImpl", main.gui.GuiComponent.Label.initWasm) catch {};
-
 	mod.addImport("initTextButtonImpl", main.gui.GuiComponent.Button.initTextWasm) catch {};
+
+	mod.addImport("initCheckBoxImpl", main.gui.GuiComponent.CheckBox.initWasm) catch {};
+
+	mod.addImport("initLabelImpl", main.gui.GuiComponent.Label.initWasm) catch {};
 
 	mod.addImport("initVerticalListImpl", main.gui.GuiComponent.VerticalList.initWasm) catch {};
 	mod.addImport("addVerticalListImpl", main.gui.GuiComponent.VerticalList.addWasm) catch {};
