@@ -34,9 +34,9 @@ pub var reorderWindows: bool = false;
 pub var hideGui: bool = false;
 
 pub const ComponentIndex = main.utils.DenseId(u32);
-var sparseSet: main.utils.SparseSet(GuiComponent, ComponentIndex) = .{};
-var nextIndex: ComponentIndex = @enumFromInt(0);
-var freeIndexList: main.ListUnmanaged(ComponentIndex) = .{};
+var sparseSet: main.utils.SparseSet(GuiComponent, ComponentIndex) = undefined;
+var nextIndex: ComponentIndex = undefined;
+var freeIndexList: main.ListUnmanaged(ComponentIndex) = undefined;
 
 pub var scale: f32 = undefined;
 
@@ -203,6 +203,10 @@ pub fn getComponentTypeWasm(_: *main.wasm.WasmInstance, typ: u32) u8 {
 	return @intFromEnum(std.meta.activeTag(component));
 }
 
+pub fn deinitComponentWasm(_: *main.wasm.WasmInstance, index: u32) void {
+	getComponent(@enumFromInt(index)).deinit();
+}
+
 pub fn deinitWindowList() void {
 	for(windowList.items) |windowRef| {
 		main.globalAllocator.free(windowRef.id);
@@ -233,6 +237,10 @@ pub fn init() void { // MARK: init()
 	TextInput.__init();
 	load();
 	GamepadCursor.init();
+
+	sparseSet = .{};
+	nextIndex = @enumFromInt(0);
+	freeIndexList = .{};
 }
 
 pub fn deinit() void {

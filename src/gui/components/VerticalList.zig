@@ -181,3 +181,16 @@ pub fn mainButtonReleased(self: *VerticalList, mousePosition: Vec2f) void {
 		child.mainButtonReleased(mousePosition - shiftedPos);
 	}
 }
+
+pub fn initWasm(_: *main.wasm.WasmInstance, posX: f32, posY: f32, maxHeight: f32, padding: f32) u32 {
+	const label = init(.{posX, posY}, maxHeight, padding);
+	return @intFromEnum(label.index);
+}
+
+pub fn addWasm(_: *main.wasm.WasmInstance, index: u32, other: u32) void {
+	gui.getComponent(@enumFromInt(index)).verticalList.add(gui.getComponent(@enumFromInt(other)));
+}
+
+pub fn finishWasm(_: *main.wasm.WasmInstance, index: u32, alignment: u2) void {
+	gui.getComponent(@enumFromInt(index)).verticalList.finish(@enumFromInt(alignment));
+}
