@@ -537,3 +537,19 @@ pub fn render(self: *TextInput, mousePosition: Vec2f) void {
 		}
 	}
 }
+
+pub fn initWasm(instance: *main.wasm.WasmInstance, posX: f32, posY: f32, maxWidth: f32, maxHeight: f32, text: []const u8, onNewline: []const u8, onUp: []const u8, onDown: []const u8) u32 {
+	const label = init(.{posX, posY}, maxWidth, maxHeight, text, .{.callback = .initFromWasm(instance, onNewline)}, .{
+		.onUp = .{.callback = .initFromWasm(instance, onUp)},
+		.onDown = .{.callback = .initFromWasm(instance, onDown)},
+	});
+	return @intFromEnum(label.index);
+}
+
+pub fn clearWasm(_: *main.wasm.WasmInstance, index: u32) void {
+	gui.getComponent(@enumFromInt(index)).textInput.clear();
+}
+
+pub fn setWasm(_: *main.wasm.WasmInstance, index: u32, text: []const u8) void {
+	gui.getComponent(@enumFromInt(index)).textInput.setString(text);
+}

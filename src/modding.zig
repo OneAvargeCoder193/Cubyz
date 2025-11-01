@@ -74,6 +74,10 @@ fn loadMod(file: std.fs.File) !*wasm.WasmInstance {
 
 	mod.addImport("initLabelImpl", main.gui.GuiComponent.Label.initWasm) catch {};
 
+	mod.addImport("initTextInputImpl", main.gui.GuiComponent.TextInput.initWasm) catch {};
+	mod.addImport("clearTextInputImpl", main.gui.GuiComponent.TextInput.clearWasm) catch {};
+	mod.addImport("setTextInputImpl", main.gui.GuiComponent.TextInput.setWasm) catch {};
+
 	mod.addImport("initVerticalListImpl", main.gui.GuiComponent.VerticalList.initWasm) catch {};
 	mod.addImport("addVerticalListImpl", main.gui.GuiComponent.VerticalList.addWasm) catch {};
 	mod.addImport("finishVerticalListImpl", main.gui.GuiComponent.VerticalList.finishWasm) catch {};
