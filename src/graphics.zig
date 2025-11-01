@@ -563,10 +563,10 @@ pub const draw = struct { // MARK: draw
 
 pub const TextBuffer = struct { // MARK: TextBuffer
 
-	pub const Alignment = enum {
-		left,
-		center,
-		right,
+	pub const Alignment = enum(u2) {
+		left = 0,
+		center = 1,
+		right = 2,
 	};
 
 	pub const FontEffect = packed struct(u28) {

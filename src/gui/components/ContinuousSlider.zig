@@ -22,6 +22,7 @@ const fontSize: f32 = 16;
 
 var texture: Texture = undefined;
 
+index: gui.ComponentIndex,
 pos: Vec2f,
 size: Vec2f,
 minValue: f32,
@@ -46,8 +47,9 @@ pub fn init(pos: Vec2f, width: f32, minValue: f32, maxValue: f32, initialValue: 
 	const initialText = formatter(main.globalAllocator, initialValue);
 	const label = Label.init(undefined, width - 3*border, initialText, .center);
 	const button = Button.initText(.{0, 0}, undefined, "", .{});
-	const self = main.globalAllocator.create(ContinuousSlider);
+	const self, const index = gui.createComponent(ContinuousSlider);
 	self.* = ContinuousSlider{
+		.index = index,
 		.pos = pos,
 		.size = undefined,
 		.minValue = minValue,
@@ -70,6 +72,7 @@ pub fn deinit(self: *const ContinuousSlider) void {
 	self.label.deinit();
 	self.button.deinit();
 	main.globalAllocator.free(self.currentText);
+	gui.removeComponent(self.index);
 	main.globalAllocator.destroy(self);
 }
 

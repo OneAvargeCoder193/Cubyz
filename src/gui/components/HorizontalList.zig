@@ -12,13 +12,15 @@ const GuiComponent = gui.GuiComponent;
 
 const HorizontalList = @This();
 
+index: gui.ComponentIndex,
 pos: Vec2f,
 size: Vec2f,
 children: main.List(GuiComponent),
 
 pub fn init() *HorizontalList {
-	const self = main.globalAllocator.create(HorizontalList);
+	const self, const index = gui.createComponent(HorizontalList);
 	self.* = HorizontalList{
+		.index = index,
 		.children = .init(main.globalAllocator),
 		.pos = .{0, 0},
 		.size = .{0, 0},
@@ -31,6 +33,7 @@ pub fn deinit(self: *const HorizontalList) void {
 		child.deinit();
 	}
 	self.children.deinit();
+	gui.removeComponent(self.index);
 	main.globalAllocator.destroy(self);
 }
 

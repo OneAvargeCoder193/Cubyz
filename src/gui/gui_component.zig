@@ -3,15 +3,30 @@ const std = @import("std");
 const main = @import("main");
 const vec = main.vec;
 const Vec2f = vec.Vec2f;
+const gui = main.gui;
+const ComponentIndex = gui.ComponentIndex;
 
-pub const GuiComponent = union(enum) {
+pub const GuiComponentEnum = enum(u8) {
+	button = 0,
+	checkBox = 1,
+	horizontalList = 2,
+	icon = 3,
+	itemSlot = 4,
+	label = 5,
+	scrollBar = 6,
+	continuousSlider = 7,
+	discreteSlider = 8,
+	textInput = 9,
+	verticalList = 10,
+};
+
+pub const GuiComponent = union(GuiComponentEnum) {
 	pub const Button = @import("components/Button.zig");
 	pub const CheckBox = @import("components/CheckBox.zig");
 	pub const HorizontalList = @import("components/HorizontalList.zig");
 	pub const Icon = @import("components/Icon.zig");
 	pub const ItemSlot = @import("components/ItemSlot.zig");
 	pub const Label = @import("components/Label.zig");
-	pub const MutexComponent = @import("components/MutexComponent.zig");
 	pub const ScrollBar = @import("components/ScrollBar.zig");
 	pub const ContinuousSlider = @import("components/ContinuousSlider.zig");
 	pub const DiscreteSlider = @import("components/DiscreteSlider.zig");
@@ -24,7 +39,6 @@ pub const GuiComponent = union(enum) {
 	icon: *Icon,
 	itemSlot: *ItemSlot,
 	label: *Label,
-	mutexComponent: *MutexComponent,
 	scrollBar: *ScrollBar,
 	continuousSlider: *ContinuousSlider,
 	discreteSlider: *DiscreteSlider,
@@ -37,6 +51,14 @@ pub const GuiComponent = union(enum) {
 				if(@hasDecl(@TypeOf(impl.*), "deinit")) {
 					impl.deinit();
 				}
+			},
+		}
+	}
+
+	pub fn index(self: GuiComponent) ComponentIndex {
+		switch(self) {
+			inline else => |impl| {
+				return impl.index;
 			},
 		}
 	}
@@ -125,5 +147,17 @@ pub const GuiComponent = union(enum) {
 
 	pub fn contains(_pos: Vec2f, _size: Vec2f, point: Vec2f) bool {
 		return @reduce(.And, point >= _pos) and @reduce(.And, point < _pos + _size);
+	}
+
+	pub fn guiComponentPosWasm(instance: *main.wasm.WasmInstance, componentIndex: u32, x: u32, y: u32) void {
+		const componentPos = gui.getComponent(@enumFromInt(componentIndex)).pos();
+		instance.setMemory(f32, componentPos[0], x);
+		instance.setMemory(f32, componentPos[1], y);
+	}
+
+	pub fn guiComponentSizeWasm(instance: *main.wasm.WasmInstance, componentIndex: u32, width: u32, height: u32) void {
+		const componentSize = gui.getComponent(@enumFromInt(componentIndex)).size();
+		instance.setMemory(f32, componentSize[0], width);
+		instance.setMemory(f32, componentSize[1], height);
 	}
 };

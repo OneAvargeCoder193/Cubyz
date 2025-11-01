@@ -20,6 +20,7 @@ const fontSize: f32 = 16;
 
 var texture: Texture = undefined;
 
+index: gui.ComponentIndex,
 pos: Vec2f,
 size: Vec2f,
 currentState: f32,
@@ -36,8 +37,9 @@ pub fn __deinit() void {
 
 pub fn init(pos: Vec2f, width: f32, height: f32, initialState: f32) *ScrollBar {
 	const button = Button.initText(.{0, 0}, undefined, "", .{});
-	const self = main.globalAllocator.create(ScrollBar);
+	const self, const index = gui.createComponent(ScrollBar);
 	self.* = ScrollBar{
+		.index = index,
 		.pos = pos,
 		.size = Vec2f{width, height},
 		.currentState = initialState,
@@ -50,6 +52,7 @@ pub fn init(pos: Vec2f, width: f32, height: f32, initialState: f32) *ScrollBar {
 
 pub fn deinit(self: *const ScrollBar) void {
 	self.button.deinit();
+	gui.removeComponent(self.index);
 	main.globalAllocator.destroy(self);
 }
 

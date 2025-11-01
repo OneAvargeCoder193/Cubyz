@@ -52,6 +52,7 @@ pub var buttonUniforms: struct {
 	scale: c_int,
 } = undefined;
 
+index: gui.ComponentIndex,
 pos: Vec2f,
 size: Vec2f,
 pressed: bool = false,
@@ -85,8 +86,9 @@ fn defaultOnAction(_: usize) void {}
 
 pub fn initText(pos: Vec2f, width: f32, text: []const u8, onAction: gui.Callback) *Button {
 	const label = Label.init(undefined, width - 3*border, text, .center);
-	const self = main.globalAllocator.create(Button);
+	const self, const index = gui.createComponent(Button);
 	self.* = Button{
+		.index = index,
 		.pos = pos,
 		.size = Vec2f{width, label.size[1] + 3*border},
 		.onAction = onAction,
@@ -97,8 +99,9 @@ pub fn initText(pos: Vec2f, width: f32, text: []const u8, onAction: gui.Callback
 
 pub fn initIcon(pos: Vec2f, iconSize: Vec2f, iconTexture: Texture, hasShadow: bool, onAction: gui.Callback) *Button {
 	const icon = Icon.init(undefined, iconSize, iconTexture, hasShadow);
-	const self = main.globalAllocator.create(Button);
+	const self, const index = gui.createComponent(Button);
 	self.* = Button{
+		.index = index,
 		.pos = pos,
 		.size = icon.size + @as(Vec2f, @splat(3*border)),
 		.onAction = onAction,
@@ -109,6 +112,7 @@ pub fn initIcon(pos: Vec2f, iconSize: Vec2f, iconTexture: Texture, hasShadow: bo
 
 pub fn deinit(self: *const Button) void {
 	self.child.deinit();
+	gui.removeComponent(self.index);
 	main.globalAllocator.destroy(self);
 }
 

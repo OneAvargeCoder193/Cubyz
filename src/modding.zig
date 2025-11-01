@@ -46,6 +46,14 @@ fn loadMod(file: std.fs.File) !*wasm.WasmInstance {
 	mod.addImport("setPositionImpl", main.server.setPositionWasm) catch {};
 	mod.addImport("parseBlockImpl", main.blocks.parseBlockWasm) catch {};
 	mod.addImport("setBlockImpl", main.server.world_zig.setBlockWasm) catch {};
+	mod.addImport("initLabelImpl", main.gui.GuiComponent.Label.initWasm) catch {};
+	mod.addImport("deinitLabelImpl", main.gui.GuiComponent.Label.deinitWasm) catch {};
+	mod.addImport("registerWindowImpl", main.gui.registerWindowWasm) catch {};
+	mod.addImport("setRootComponentImpl", main.gui.setRootComponentWasm) catch {};
+	mod.addImport("getRootComponentImpl", main.gui.getRootComponentWasm) catch {};
+	mod.addImport("getComponentTypeImpl", main.gui.getComponentTypeWasm) catch {};
+	mod.addImport("guiComponentPosImpl", main.gui.GuiComponent.guiComponentPosWasm) catch {};
+	mod.addImport("guiComponentSizeImpl", main.gui.GuiComponent.guiComponentSizeWasm) catch {};
 	mod.instantiate() catch |err| {
 		std.log.err("Failed to instantiate module: {}\n", .{err});
 		return err;

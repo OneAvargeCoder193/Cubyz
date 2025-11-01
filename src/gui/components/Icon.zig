@@ -14,14 +14,16 @@ const Icon = @This();
 
 const fontSize: f32 = 16;
 
+index: gui.ComponentIndex,
 pos: Vec2f,
 size: Vec2f,
 texture: Texture,
 hasShadow: bool,
 
 pub fn init(pos: Vec2f, size: Vec2f, texture: Texture, hasShadow: bool) *Icon {
-	const self = main.globalAllocator.create(Icon);
+	const self, const index = gui.createComponent(Icon);
 	self.* = Icon{
+		.index = index,
 		.texture = texture,
 		.pos = pos,
 		.size = size,
@@ -31,6 +33,7 @@ pub fn init(pos: Vec2f, size: Vec2f, texture: Texture, hasShadow: bool) *Icon {
 }
 
 pub fn deinit(self: *const Icon) void {
+	gui.removeComponent(self.index);
 	main.globalAllocator.destroy(self);
 }
 

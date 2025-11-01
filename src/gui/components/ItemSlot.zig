@@ -24,6 +24,7 @@ const Mode = enum {
 	immutable,
 };
 
+index: gui.ComponentIndex,
 pos: Vec2f,
 size: Vec2f = @splat(sizeWithBorder),
 inventory: Inventory,
@@ -70,10 +71,11 @@ pub fn __deinit() void {
 }
 
 pub fn init(pos: Vec2f, inventory: Inventory, itemSlot: u32, texture: TextureParamType, mode: Mode) *ItemSlot {
-	const self = main.globalAllocator.create(ItemSlot);
+	const self, const index = gui.createComponent(ItemSlot);
 	const amount = inventory.getAmount(itemSlot);
 	var buf: [16]u8 = undefined;
 	self.* = ItemSlot{
+		.index = index,
 		.inventory = inventory,
 		.itemSlot = itemSlot,
 		.pos = pos,
@@ -89,6 +91,7 @@ pub fn init(pos: Vec2f, inventory: Inventory, itemSlot: u32, texture: TexturePar
 pub fn deinit(self: *const ItemSlot) void {
 	main.gui.inventory.deleteItemSlotReferences(self);
 	self.text.deinit();
+	gui.removeComponent(self.index);
 	main.globalAllocator.destroy(self);
 }
 

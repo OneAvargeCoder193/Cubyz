@@ -27,7 +27,14 @@ const OrientationLine = struct {
 	end: f32,
 };
 
-const RelativePosition = union(enum) {
+const RelativePositionEnum = enum(u2) {
+	ratio = 0,
+	attachedToFrame = 1,
+	relativeToWindow = 2,
+	attachedToWindow = 3,
+};
+
+pub const RelativePosition = union(RelativePositionEnum) {
 	ratio: f32,
 	attachedToFrame: struct {
 		selfAttachmentPoint: AttachmentPoint,
@@ -42,11 +49,60 @@ const RelativePosition = union(enum) {
 		selfAttachmentPoint: AttachmentPoint,
 		otherAttachmentPoint: AttachmentPoint,
 	},
+
+	pub fn deserialize(data: []const u8) RelativePosition {
+		var reader = utils.BinaryReader.init(data);
+		const tag = reader.readEnum(RelativePositionEnum) catch unreachable;
+		switch(tag) {
+			.ratio => {
+				return .{.ratio = reader.readFloat(f32) catch unreachable};
+			},
+			.attachedToFrame => {
+				const selfAttachmentPoint = reader.readEnum(AttachmentPoint) catch unreachable;
+				const otherAttachmentPoint = reader.readEnum(AttachmentPoint) catch unreachable;
+				return .{.attachedToFrame = .{
+					.selfAttachmentPoint = selfAttachmentPoint,
+					.otherAttachmentPoint = otherAttachmentPoint,
+				}};
+			},
+			.relativeToWindow => {
+				const ratio = reader.readFloat(f32) catch unreachable;
+				return .{.relativeToWindow = .{
+					.ratio = ratio,
+					.reference = gui.getWindowById(reader.remaining).?,
+				}};
+			},
+			.attachedToWindow => {
+				const selfAttachmentPoint = reader.readEnum(AttachmentPoint) catch unreachable;
+				const otherAttachmentPoint = reader.readEnum(AttachmentPoint) catch unreachable;
+				return .{.attachedToWindow = .{
+					.selfAttachmentPoint = selfAttachmentPoint,
+					.otherAttachmentPoint = otherAttachmentPoint,
+					.reference = gui.getWindowById(reader.remaining).?,
+				}};
+			},
+		}
+	}
 };
 
 const snapDistance = 3;
 const titleBarHeight = 18;
 const iconWidth = 18;
+
+pub const OnOpen = main.wasm.ModdableFunction(fn() void, struct {
+	fn wasmWrapper(instance: *main.wasm.WasmInstance, func: *main.wasm.c.wasm_func_t, _: anytype) void {
+		instance.currentSide = .client;
+		instance.invokeFunc(func, .{}, void) catch {};
+		gui.updateWindowPositions();
+	}
+}.wasmWrapper);
+
+pub const OnClose = main.wasm.ModdableFunction(fn() void, struct {
+	fn wasmWrapper(instance: *main.wasm.WasmInstance, func: *main.wasm.c.wasm_func_t, _: anytype) void {
+		instance.currentSide = .client;
+		instance.invokeFunc(func, .{}, void) catch {};
+	}
+}.wasmWrapper);
 
 pos: Vec2f = undefined,
 size: Vec2f = undefined,
@@ -63,6 +119,8 @@ closeIfMouseIsGrabbed: bool = false,
 closeable: bool = true,
 isHud: bool = false,
 
+modded: bool = false,
+
 shiftClickableInventory: ?main.items.Inventory = null,
 
 /// Called every frame.
@@ -74,9 +132,9 @@ updateSelectedFn: *const fn() void = &defaultFunction,
 /// Called every frame for the currently hovered window.
 updateHoveredFn: *const fn() void = &defaultFunction,
 
-onOpenFn: *const fn() void = &defaultFunction,
+onOpenFn: OnOpen = .initFromCode(&defaultFunction),
 
-onCloseFn: *const fn() void = &defaultFunction,
+onCloseFn: OnClose = .initFromCode(&defaultFunction),
 
 var grabbedWindow: *const GuiWindow = undefined;
 var windowMoving: bool = false;

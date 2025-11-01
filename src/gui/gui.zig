@@ -33,6 +33,11 @@ var hoveredAWindow: bool = false;
 pub var reorderWindows: bool = false;
 pub var hideGui: bool = false;
 
+pub const ComponentIndex = main.utils.DenseId(u32);
+var sparseSet: main.utils.SparseSet(GuiComponent, ComponentIndex) = .{};
+var nextIndex: ComponentIndex = @enumFromInt(0);
+var freeIndexList: main.ListUnmanaged(ComponentIndex) = .{};
+
 pub var scale: f32 = undefined;
 
 pub var hoveredItemSlot: ?*ItemSlot = null;
@@ -85,7 +90,7 @@ const GuiCommandQueue = struct { // MARK: GuiCommandQueue
 			}
 		}
 		openWindows.append(window);
-		window.onOpenFn();
+		window.onOpenFn.invoke(.{});
 		selectedWindow = null;
 	}
 
@@ -97,7 +102,7 @@ const GuiCommandQueue = struct { // MARK: GuiCommandQueue
 		for(openWindows.items, 0..) |_openWindow, i| {
 			if(_openWindow == window) {
 				_ = openWindows.swapRemove(i);
-				window.onCloseFn();
+				window.onCloseFn.invoke(.{});
 				break;
 			}
 		}
@@ -122,18 +127,89 @@ pub fn initWindowList() void {
 	openWindows = .init(main.globalAllocator);
 	inline for(@typeInfo(windowlist).@"struct".decls) |decl| {
 		const windowStruct = @field(windowlist, decl.name);
-		windowStruct.window.id = decl.name;
+		windowStruct.window.id = main.globalAllocator.dupe(u8, decl.name);
 		addWindow(&windowStruct.window);
-		const functionNames = [_][]const u8{"render", "update", "updateSelected", "updateHovered", "onOpen", "onClose"};
+		const functionNames = [_][]const u8{"render", "update", "updateSelected", "updateHovered"};
+		const moddableFunctionNames = [_][]const u8{"onOpen", "onClose"};
 		inline for(functionNames) |function| {
 			if(@hasDecl(windowStruct, function)) {
 				@field(windowStruct.window, function ++ "Fn") = &@field(windowStruct, function);
 			}
 		}
+		inline for(moddableFunctionNames) |function| {
+			if(@hasDecl(windowStruct, function)) {
+				@field(windowStruct.window, function ++ "Fn") = .initFromCode(&@field(windowStruct, function));
+			}
+		}
+	}
+
+	for(main.modding.mods.items) |mod| {
+		mod.invoke("registerWindows", .{}, void) catch {};
 	}
 }
 
+pub fn registerWindowWasm(instance: *main.wasm.WasmInstance, openName: []const u8, closeName: []const u8, name: []const u8,
+	contentWidth: f32, contentHeight: f32,
+	windowScale: f32, spacing: f32,
+	relativePositionXData: []const u8,
+	relativePositionYData: []const u8,
+	showTitleBar: bool, hasBackground: bool,
+	hideIfMouseIsGrabbed: bool, closeIfMouseIsGrabbed: bool,
+	closable: bool, isHud: bool,
+) void {
+	const relativePositionX = GuiWindow.RelativePosition.deserialize(relativePositionXData);
+	const relativePositionY = GuiWindow.RelativePosition.deserialize(relativePositionYData);
+	var windowStruct = GuiWindow {
+		.id = main.globalAllocator.dupe(u8, name),
+		.contentSize = .{contentWidth, contentHeight},
+		.scale = windowScale,
+		.spacing = spacing,
+		.relativePosition = .{relativePositionX, relativePositionY},
+		.showTitleBar = showTitleBar,
+		.hasBackground = hasBackground,
+		.hideIfMouseIsGrabbed = hideIfMouseIsGrabbed,
+		.closeIfMouseIsGrabbed = closeIfMouseIsGrabbed,
+		.closeable = closable,
+		.isHud = isHud,
+		.onOpenFn = GuiWindow.OnOpen.initFromWasm(instance, openName) catch unreachable,
+		.onCloseFn = GuiWindow.OnClose.initFromWasm(instance, closeName) catch unreachable,
+		.modded = true,
+	};
+	addWindow(&windowStruct);
+}
+
+pub fn setRootComponentWasm(_: *main.wasm.WasmInstance, id: []const u8, component: u32, padding: f32) void {
+	const window = getWindowById(id) orelse {
+		std.log.err("Invalid window id: {s}\n", .{id});
+		return;
+	};
+	window.rootComponent = getComponent(@enumFromInt(component));
+	window.contentSize = window.rootComponent.?.pos() + window.rootComponent.?.size() + @as(Vec2f, @splat(padding));
+}
+
+pub fn getRootComponentWasm(instance: *main.wasm.WasmInstance, id: []const u8, exists: u32) u32 {
+	const window = getWindowById(id) orelse {
+		std.log.err("Invalid window id: {s}\n", .{id});
+		instance.setMemory(bool, false, exists);
+		return 0;
+	};
+	instance.setMemory(bool, window.rootComponent != null, exists);
+	if(window.rootComponent == null) return 0;
+	return @intFromEnum(window.rootComponent.?.index());
+}
+
+pub fn getComponentTypeWasm(_: *main.wasm.WasmInstance, typ: u32) u8 {
+	const component = getComponent(@enumFromInt(typ));
+	return @intFromEnum(std.meta.activeTag(component));
+}
+
 pub fn deinitWindowList() void {
+	for(windowList.items) |windowRef| {
+		main.globalAllocator.free(windowRef.id);
+		if(windowRef.modded) {
+			main.globalAllocator.destroy(windowRef);
+		}
+	}
 	windowList.clearAndFree();
 	hudWindows.deinit();
 	openWindows.deinit();
@@ -163,7 +239,7 @@ pub fn deinit() void {
 	save();
 	GamepadCursor.deinit();
 	for(openWindows.items) |window| {
-		window.onCloseFn();
+		window.onCloseFn.invoke(.{});
 	}
 	openWindows.clearRetainingCapacity();
 	GuiWindow.__deinit();
@@ -180,6 +256,8 @@ pub fn deinit() void {
 			WindowStruct.deinit();
 		}
 	}
+	sparseSet.deinit(main.globalAllocator);
+	freeIndexList.deinit(main.globalAllocator);
 }
 
 pub fn save() void { // MARK: save()
@@ -282,7 +360,27 @@ fn load() void {
 	}
 }
 
-fn getWindowById(id: []const u8) ?*GuiWindow {
+pub fn createComponent(comptime T: type) struct{*T, ComponentIndex} {
+	const self = main.globalAllocator.create(T);
+	const dataIndex: ComponentIndex = freeIndexList.popOrNull() orelse blk: {
+		defer nextIndex = @enumFromInt(@intFromEnum(nextIndex) + 1);
+		break :blk nextIndex;
+	};
+	self.index = dataIndex;
+	sparseSet.set(main.globalAllocator, dataIndex, self.toComponent());
+	return .{self, dataIndex};
+}
+
+pub fn removeComponent(index: ComponentIndex) void {
+	freeIndexList.append(main.globalAllocator, index);
+	_ = sparseSet.fetchRemove(index) catch unreachable;
+}
+
+pub fn getComponent(index: ComponentIndex) GuiComponent {
+	return sparseSet.get(index).?.*;
+}
+
+pub fn getWindowById(id: []const u8) ?*GuiWindow {
 	for(windowList.items) |window| {
 		if(std.mem.eql(u8, id, window.id)) {
 			return window;
@@ -312,10 +410,15 @@ fn addWindow(window: *GuiWindow) void {
 			return;
 		}
 	}
-	if(window.isHud) {
-		hudWindows.append(window);
+	var windowRef = window;
+	if(window.modded) {
+		windowRef = main.globalAllocator.create(GuiWindow);
+		windowRef.* = window.*;
 	}
-	windowList.append(window);
+	if(window.isHud) {
+		hudWindows.append(windowRef);
+	}
+	windowList.append(windowRef);
 }
 
 pub fn openWindow(id: []const u8) void {
@@ -342,13 +445,13 @@ pub fn toggleWindow(id: []const u8) void {
 			for(openWindows.items, 0..) |_openWindow, i| {
 				if(_openWindow == window) {
 					_ = openWindows.swapRemove(i);
-					window.onCloseFn();
+					window.onCloseFn.invoke(.{});
 					selectedWindow = null;
 					return;
 				}
 			}
 			openWindows.append(window);
-			window.onOpenFn();
+			window.onOpenFn.invoke(.{});
 			selectedWindow = null;
 			return;
 		}
@@ -591,7 +694,7 @@ pub fn toggleGameMenu() void {
 			const window = openWindows.items[i];
 			if(window.closeIfMouseIsGrabbed) {
 				_ = openWindows.swapRemove(i);
-				window.onCloseFn();
+				window.onCloseFn.invoke(.{});
 			} else {
 				i += 1;
 			}

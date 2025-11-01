@@ -55,7 +55,7 @@ pub fn ModdableFunction(comptime FuncType: type, wasmWrapper: fn(instance: *Wasm
 
 pub const WasmInstance = struct {
 	module: ?*c.wasm_module_t,
-	instanciated: bool = false,
+	instantiated: bool = false,
 	instance: *c.wasm_instance_t,
 	exportTypes: c.wasm_exporttype_vec_t,
 	importTypes: c.wasm_importtype_vec_t,
@@ -90,7 +90,7 @@ pub const WasmInstance = struct {
 
 	pub fn deinit(self: *WasmInstance, allocator: main.heap.NeverFailingAllocator) void {
 		c.wasm_module_delete(self.module);
-		if(self.instanciated) {
+		if(self.instantiated) {
 			c.wasm_instance_delete(self.instance);
 			c.wasm_exporttype_vec_delete(&self.exportTypes);
 			c.wasm_extern_vec_delete(&self.exports);
@@ -109,7 +109,7 @@ pub const WasmInstance = struct {
 			std.log.err("{s}\n", .{err});
 			return error.WasmInstanceError;
 		};
-		self.instanciated = true;
+		self.instantiated = true;
 		c.wasm_instance_exports(self.instance, &self.exports);
 		self.memory = c.wasm_extern_as_memory(self.exports.data[self.getExport("memory") orelse return]);
 	}
@@ -128,25 +128,53 @@ pub const WasmInstance = struct {
 		};
 	}
 
+	fn convertIntToBigger(comptime B: type, a: anytype) B {
+		const infoA = @typeInfo(@TypeOf(a)).@"int";
+		const infoB = @typeInfo(B).@"int";
+
+		if(infoA.signedness == infoB.signedness) {
+			return a;
+		}
+
+		const Intermediate = if(infoA.bits == infoB.bits) B else std.meta.Int(infoB.signedness, infoA.bits);
+
+		const bitcasted: Intermediate = @bitCast(a);
+		return @as(B, bitcasted);
+	}
+
+	fn convertIntToSmaller(comptime B: type, a: anytype) B {
+		const infoA = @typeInfo(@TypeOf(a)).@"int";
+		const infoB = @typeInfo(B).@"int";
+
+		if(infoA.signedness == infoB.signedness) {
+			return @intCast(a);
+		}
+
+		const Intermediate = if(infoA.bits == infoB.bits) B else std.meta.Int(infoB.signedness, infoA.bits);
+
+		const bitcasted: Intermediate = @bitCast(a);
+		return @intCast(bitcasted);
+	}
+
 	fn typeToValType(comptime T: type) [getNumberArgs(T)]c.wasm_valkind_t {
 		return switch(@typeInfo(T)) {
 			.@"void" => [_]c.wasm_valkind_t{},
 			.bool => [_]c.wasm_valkind_t{c.WASM_I32},
 			.int => |int| switch(int.bits) {
-				32 => [_]c.wasm_valkind_t{c.WASM_I32},
-				64 => [_]c.wasm_valkind_t{c.WASM_I64},
-				else => std.debug.panic("Found illegal type {s} inside wasm import\n", .{@typeName(T)}),
+				0...32 => [_]c.wasm_valkind_t{c.WASM_I32},
+				33...64 => [_]c.wasm_valkind_t{c.WASM_I64},
+				else => @compileError(std.fmt.comptimePrint("Illegal type {s} inside wasm import\n", .{@typeName(T)})),
 			},
 			.float => |float| switch(float.bits) {
 				32 => [_]c.wasm_valkind_t{c.WASM_F32},
 				64 => [_]c.wasm_valkind_t{c.WASM_F64},
-				else => std.debug.panic("Found illegal type {s} inside wasm import\n", .{@typeName(T)}),
+				else => @compileError(std.fmt.comptimePrint("Illegal type {s} inside wasm import\n", .{@typeName(T)})),
 			},
 			.pointer => |ptr| switch(ptr.size) {
 				.slice => [_]c.wasm_valkind_t{c.WASM_I32, c.WASM_I32},
-				else => std.debug.panic("Illegal type {s} inside wasm import\n", .{@typeName(T)}),
+				else => @compileError(std.fmt.comptimePrint("Illegal type {s} inside wasm import\n", .{@typeName(T)})),
 			},
-			else => std.debug.panic("Illegal type {s} inside wasm import\n", .{@typeName(T)}),
+			else => @compileError(std.fmt.comptimePrint("Illegal type {s} inside wasm import\n", .{@typeName(T)})),
 		};
 	}
 
@@ -155,20 +183,20 @@ pub const WasmInstance = struct {
 			.void => {},
 			.bool => vals[0].of.i32 != 0,
 			.int => |int| switch(int.bits) {
-				32 => @as(T, @bitCast(vals[0].of.i32)),
-				64 => @as(T, @bitCast(vals[0].of.i64)),
-				else => std.debug.panic("Found illegal type {s} inside wasm import\n", .{@typeName(T)}),
+				0...32 => convertIntToSmaller(T, vals[0].of.i32),
+				33...64 => convertIntToSmaller(T, vals[0].of.i64),
+				else => @compileError(std.fmt.comptimePrint("Illegal type {s} inside wasm import\n", .{@typeName(T)})),
 			},
 			.float => |float| switch(float.bits) {
 				32 => vals[0].of.f32,
 				64 => vals[0].of.f64,
-				else => std.debug.panic("Found illegal type {s} inside wasm import\n", .{@typeName(T)}),
+				else => @compileError(std.fmt.comptimePrint("Illegal type {s} inside wasm import\n", .{@typeName(T)})),
 			},
 			.pointer => |ptr| switch(ptr.size) {
 				.slice => self.createSliceFromWasm(vals[0], vals[1]) catch unreachable,
-				else => std.debug.panic("Illegal type {s} inside wasm import\n", .{@typeName(T)}),
+				else => @compileError(std.fmt.comptimePrint("Illegal type {s} inside wasm import\n", .{@typeName(T)})),
 			},
-			else => std.debug.panic("Illegal type {s} inside wasm import\n", .{@typeName(T)}),
+			else => @compileError(std.fmt.comptimePrint("Illegal type {s} inside wasm import\n", .{@typeName(T)})),
 		};
 	}
 
@@ -177,8 +205,8 @@ pub const WasmInstance = struct {
 			.void => [_]c.wasm_val_t{},
 			.bool => [_]c.wasm_val_t{.{.kind = c.WASM_I32, .of = .{.i32 = @intFromBool(val)}}},
 			.int => |int| switch(int.bits) {
-				32 => [_]c.wasm_val_t{.{.kind = c.WASM_I32, .of = .{.i32 = @bitCast(val)}}},
-				64 => [_]c.wasm_val_t{.{.kind = c.WASM_I64, .of = .{.i64 = @bitCast(val)}}},
+				0...32 => [_]c.wasm_val_t{.{.kind = c.WASM_I32, .of = .{.i32 = convertIntToBigger(i32, val)}}},
+				33...64 => [_]c.wasm_val_t{.{.kind = c.WASM_I64, .of = .{.i64 = convertIntToBigger(i64, val)}}},
 				else => std.debug.panic("Found illegal type {s} inside wasm import\n", .{@typeName(T)}),
 			},
 			.float => |float| switch(float.bits) {
@@ -379,12 +407,34 @@ pub const WasmInstance = struct {
 
 	pub fn setMemory(self: *WasmInstance, T: type, val: T, ptr: u32) void {
 		const memory = c.wasm_memory_data(self.memory);
-		std.mem.writeInt(std.meta.Int(.unsigned, @bitSizeOf(T)), memory[ptr..][0..@sizeOf(T)], @bitCast(val), .little);
+		const Type = switch(@typeInfo(T)) {
+			.bool => u32,
+			.int => |integer| std.meta.Int(.unsigned, switch(integer.bits) {
+				0...32 => 32,
+				33...64 => 64,
+				else => undefined,
+			}),
+			.float => |floating| std.meta.Int(.unsigned, floating.bits),
+			else => undefined,
+		};
+		const expandedType = convertIntToBigger(Type, @as(std.meta.Int(.unsigned, @bitSizeOf(T)), @bitCast(val)));
+		std.mem.writeInt(Type, memory[ptr..][0..@sizeOf(Type)], expandedType, .little);
 	}
 
 	pub fn getMemory(self: *WasmInstance, T: type, ptr: u32) T {
 		const memory = c.wasm_memory_data(self.memory);
-		return @bitCast(std.mem.readInt(std.meta.Int(.unsigned, @bitSizeOf(T)), memory[ptr..][0..@sizeOf(T)], .little));
+		const Type = switch(@typeInfo(T)) {
+			.bool => u32,
+			.int => |integer| std.meta.Int(.unsigned, switch(integer.bits) {
+				0...32 => 32,
+				33...64 => 64,
+				else => undefined,
+			}),
+			.float => |floating| std.meta.Int(.unsigned, floating.bits),
+			else => undefined,
+		};
+		const read = std.mem.readInt(Type, memory[ptr..][0..@sizeOf(Type)], .little);
+		return @bitCast(convertIntToSmaller(std.meta.Int(.unsigned, @bitSizeOf(T)), read));
 	}
 };
 

@@ -14,14 +14,16 @@ const Label = @This();
 
 const fontSize: f32 = 16;
 
+index: gui.ComponentIndex,
 pos: Vec2f,
 size: Vec2f,
 text: TextBuffer,
 alpha: f32 = 1,
 
 pub fn init(pos: Vec2f, maxWidth: f32, text: []const u8, alignment: TextBuffer.Alignment) *Label {
-	const self = main.globalAllocator.create(Label);
+	const self, const index = gui.createComponent(Label);
 	self.* = Label{
+		.index = index,
 		.text = TextBuffer.init(main.globalAllocator, text, .{}, false, alignment),
 		.pos = pos,
 		.size = undefined,
@@ -32,6 +34,7 @@ pub fn init(pos: Vec2f, maxWidth: f32, text: []const u8, alignment: TextBuffer.A
 
 pub fn deinit(self: *const Label) void {
 	self.text.deinit();
+	gui.removeComponent(self.index);
 	main.globalAllocator.destroy(self);
 }
 
@@ -49,4 +52,13 @@ pub fn updateText(self: *Label, newText: []const u8) void {
 pub fn render(self: *Label, _: Vec2f) void {
 	draw.setColor(@as(u32, @intFromFloat(self.alpha*255)) << 24);
 	self.text.render(self.pos[0], self.pos[1], fontSize);
+}
+
+pub fn initWasm(_: *main.wasm.WasmInstance, posX: f32, posY: f32, maxWidth: f32, text: []const u8, alignment: u2) u32 {
+	const label = init(.{posX, posY}, maxWidth, text, @enumFromInt(alignment));
+	return @intFromEnum(label.index);
+}
+
+pub fn deinitWasm(_: *main.wasm.WasmInstance, index: u32) void {
+	gui.getComponent(@enumFromInt(index)).deinit();
 }

@@ -5,6 +5,7 @@
 	.drops = .{
 		.{.items = .{.auto}},
 	},
+	.gui = .testgui,
 	.rotation = "cubyz:stairs",
 	.model = "cubyz:cube",
 	.texture = "cubyz:iron_block",

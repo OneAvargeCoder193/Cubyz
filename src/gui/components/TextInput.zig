@@ -22,6 +22,7 @@ const blinkDurationMs: i64 = 500;
 
 var texture: Texture = undefined;
 
+index: gui.ComponentIndex,
 pos: Vec2f,
 size: Vec2f,
 pressed: bool = false,
@@ -53,8 +54,9 @@ const OptionalCallbacks = struct {
 
 pub fn init(pos: Vec2f, maxWidth: f32, maxHeight: f32, text: []const u8, onNewline: gui.Callback, optional: OptionalCallbacks) *TextInput {
 	const scrollBar = ScrollBar.init(undefined, scrollBarWidth, maxHeight - 2*border, 0);
-	const self = main.globalAllocator.create(TextInput);
+	const self, const index = gui.createComponent(TextInput);
 	self.* = TextInput{
+		.index = index,
 		.pos = pos,
 		.size = .{maxWidth, maxHeight},
 		.currentString = .init(main.globalAllocator),
@@ -78,6 +80,7 @@ pub fn deinit(self: *const TextInput) void {
 	self.textBuffer.deinit();
 	self.currentString.deinit();
 	self.scrollBar.deinit();
+	gui.removeComponent(self.index);
 	main.globalAllocator.destroy(self);
 }
 

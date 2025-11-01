@@ -27,6 +27,7 @@ var textureEmptyNormal: Texture = undefined;
 var textureEmptyHovered: Texture = undefined;
 var textureEmptyPressed: Texture = undefined;
 
+index: gui.ComponentIndex,
 pos: Vec2f,
 size: Vec2f,
 state: bool = false,
@@ -55,8 +56,9 @@ pub fn __deinit() void {
 
 pub fn init(pos: Vec2f, width: f32, text: []const u8, initialValue: bool, onAction: *const fn(bool) void) *CheckBox {
 	const label = Label.init(undefined, width - 3*border - boxSize, text, .left);
-	const self = main.globalAllocator.create(CheckBox);
+	const self, const index = gui.createComponent(CheckBox);
 	self.* = CheckBox{
+		.index = index,
 		.pos = pos,
 		.size = Vec2f{@max(width, label.size[0] + 3*border + boxSize), label.size[1] + 3*border},
 		.state = initialValue,
@@ -68,6 +70,7 @@ pub fn init(pos: Vec2f, width: f32, text: []const u8, initialValue: bool, onActi
 
 pub fn deinit(self: *const CheckBox) void {
 	self.label.deinit();
+	gui.removeComponent(self.index);
 	main.globalAllocator.destroy(self);
 }
 

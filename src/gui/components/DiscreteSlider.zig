@@ -21,6 +21,7 @@ const fontSize: f32 = 16;
 
 var texture: Texture = undefined;
 
+index: gui.ComponentIndex,
 pos: Vec2f,
 size: Vec2f,
 callback: *const fn(u16) void,
@@ -53,8 +54,9 @@ pub fn init(pos: Vec2f, width: f32, text: []const u8, comptime fmt: []const u8, 
 	@memset(initialText[text.len..], ' ');
 	const label = Label.init(undefined, width - 3*border, initialText, .center);
 	const button = Button.initText(.{0, 0}, undefined, "", .{});
-	const self = main.globalAllocator.create(DiscreteSlider);
+	const self, const index = gui.createComponent(DiscreteSlider);
 	self.* = DiscreteSlider{
+		.index = index,
 		.pos = pos,
 		.size = undefined,
 		.callback = callback,
@@ -80,6 +82,7 @@ pub fn deinit(self: *const DiscreteSlider) void {
 	}
 	main.globalAllocator.free(self.values);
 	main.globalAllocator.free(self.currentText);
+	gui.removeComponent(self.index);
 	main.globalAllocator.destroy(self);
 }
 
