@@ -31,11 +31,12 @@ pub fn ModdableFunction(comptime FuncType: type, wasmWrapper: fn(instance: *Wasm
 			};
 		}
 
-		pub fn initFromWasm(instance: *WasmInstance, name: []const u8) !@This() {
+		pub fn initFromWasm(instance: *WasmInstance, name: []const u8) @This() {
+			const function = instance.getFunc(name) catch unreachable;
 			return .{
 				.modded = .{
 					.instance = instance,
-					.func = try instance.getFunc(name),
+					.func = function,
 				},
 			};
 		}

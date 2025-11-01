@@ -130,6 +130,6 @@ pub fn render(self: *CheckBox, mousePosition: Vec2f) void {
 }
 
 pub fn initWasm(instance: *main.wasm.WasmInstance, posX: f32, posY: f32, width: f32, text: []const u8, initalValue: bool, callback: []const u8) u32 {
-	const label = init(.{posX, posY}, width, text, initalValue, CheckBoxCallback.initFromWasm(instance, callback) catch unreachable);
+	const label = init(.{posX, posY}, width, text, initalValue, .initFromWasm(instance, callback));
 	return @intFromEnum(label.index);
 }

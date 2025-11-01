@@ -177,8 +177,8 @@ pub fn registerWindowWasm(instance: *main.wasm.WasmInstance, openName: []const u
 		.closeIfMouseIsGrabbed = closeIfMouseIsGrabbed,
 		.closeable = closable,
 		.isHud = isHud,
-		.onOpenFn = GuiWindow.OnOpen.initFromWasm(instance, openName) catch unreachable,
-		.onCloseFn = GuiWindow.OnClose.initFromWasm(instance, closeName) catch unreachable,
+		.onOpenFn = .initFromWasm(instance, openName),
+		.onCloseFn = .initFromWasm(instance, closeName),
 		.modded = true,
 	};
 	addWindow(&windowStruct);

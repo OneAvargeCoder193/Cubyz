@@ -173,6 +173,6 @@ pub fn render(self: *Button, mousePosition: Vec2f) void {
 }
 
 pub fn initTextWasm(instance: *main.wasm.WasmInstance, posX: f32, posY: f32, width: f32, text: []const u8, callback: []const u8) u32 {
-	const label = initText(.{posX, posY}, width, text, .{ .callback = gui.Callback.CallbackFunc.initFromWasm(instance, callback) catch unreachable });
+	const label = initText(.{posX, posY}, width, text, .{ .callback = .initFromWasm(instance, callback) });
 	return @intFromEnum(label.index);
 }

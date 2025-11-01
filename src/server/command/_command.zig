@@ -27,7 +27,7 @@ pub fn init() void {
 			.name = main.globalAllocator.dupe(u8, decl.name),
 			.description = main.globalAllocator.dupe(u8, @field(commandList, decl.name).description),
 			.usage = main.globalAllocator.dupe(u8, @field(commandList, decl.name).usage),
-			.exec = Command.Exec.initFromCode(&@field(commandList, decl.name).execute),
+			.exec = .initFromCode(&@field(commandList, decl.name).execute),
 		}) catch unreachable;
 		std.log.debug("Registered command: '/{s}'", .{decl.name});
 	}
@@ -63,7 +63,7 @@ pub fn registerCommandWasm(instance: *main.wasm.WasmInstance, funcName: []const 
 		.name = main.globalAllocator.dupe(u8, name),
 		.description = main.globalAllocator.dupe(u8, description),
 		.usage = main.globalAllocator.dupe(u8, usage),
-		.exec = Command.Exec.initFromWasm(instance, funcName) catch unreachable,
+		.exec = .initFromWasm(instance, funcName),
 	}) catch unreachable;
 	std.log.debug("Registered command: '/{s}'", .{name});
 }
