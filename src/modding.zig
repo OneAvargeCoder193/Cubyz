@@ -38,6 +38,7 @@ fn loadMod(file: std.fs.File) !*wasm.WasmInstance {
 	// Miscellaneous functions
 	mod.addImport("registerCommandImpl", main.server.command.registerCommandWasm) catch {};
 	mod.addImport("sendMessageImpl", main.server.sendRawMessageWasm) catch {};
+	mod.addImport("registerAssetImpl", main.server.world_zig.registerAssetWasm) catch {};
 
 	// Player related functions
 	mod.addImport("addHealthImpl", main.items.Inventory.Sync.addHealthWasm) catch {};

@@ -508,6 +508,8 @@ const WorldIO = struct { // MARK: WorldIO
 pub const ServerWorld = struct { // MARK: ServerWorld
 	pub const dayCycle: u31 = 12000; // Length of one in-game day in units of 100ms. Midnight is at DAY_CYCLE/2. Sunrise and sunset each take about 1/16 of the day. Currently set to 20 minutes
 
+	var currentPath: []const u8 = undefined;
+
 	itemDropManager: ItemDropManager = undefined,
 	blockPalette: *main.assets.Palette = undefined,
 	itemPalette: *main.assets.Palette = undefined,
@@ -566,6 +568,8 @@ pub const ServerWorld = struct { // MARK: ServerWorld
 		self.itemDropManager.init(main.globalAllocator, self);
 		errdefer self.itemDropManager.deinit();
 
+		currentPath = path;
+
 		const arena = main.stackAllocator.createArena();
 		defer main.stackAllocator.destroyArena(arena);
 		var generatorSettings: ZonElement = undefined;
@@ -579,6 +583,12 @@ pub const ServerWorld = struct { // MARK: ServerWorld
 		}
 		self.wio = WorldIO.init(try files.cubyzDir().openDir(try std.fmt.allocPrint(arena.allocator, "saves/{s}", .{path})), self);
 		errdefer self.wio.deinit();
+
+		try files.cubyzDir().deleteTree(try std.fmt.allocPrint(arena.allocator, "saves/{s}/assets", .{path}));
+
+		for(main.modding.mods.items) |mod| {
+			mod.invoke("loadAssets", .{}, void) catch {};
+		}
 
 		self.blockPalette = try loadPalette(arena, path, "palette", "cubyz:air");
 		errdefer self.blockPalette.deinit();
@@ -1257,4 +1267,14 @@ pub fn setBlockWasm(instance: *main.wasm.WasmInstance, block: u32, x: i32, y: i3
 	main.items.Inventory.Sync.ServerSide.mutex.lock();
 	defer main.items.Inventory.Sync.ServerSide.mutex.unlock();
 	server.world.?.updateBlock(x, y, z, @bitCast(block));
+}
+
+pub fn registerAssetWasm(_: *main.wasm.WasmInstance, path: []const u8, contents: []const u8) void {
+	const dirPath = std.fs.path.dirname(path).?;
+	const subPath = std.fmt.allocPrint(main.stackAllocator.allocator, "saves/{s}/assets/{s}", .{ServerWorld.currentPath, dirPath}) catch unreachable;
+	defer main.stackAllocator.free(subPath);
+	const fullPath = std.fmt.allocPrint(main.stackAllocator.allocator, "saves/{s}/assets/{s}", .{ServerWorld.currentPath, path}) catch unreachable;
+	defer main.stackAllocator.free(fullPath);
+	files.cubyzDir().makePath(subPath) catch unreachable;
+	files.cubyzDir().write(fullPath, contents) catch unreachable;
 }
