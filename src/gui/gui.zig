@@ -110,12 +110,18 @@ const GuiCommandQueue = struct { // MARK: GuiCommandQueue
 };
 
 pub const Callback = struct {
-	callback: ?*const fn(usize) void = null,
+	pub const CallbackFunc = main.wasm.ModdableFunction(fn(usize) void, struct{
+		fn wrapper(instance: *main.wasm.WasmInstance, func: *main.wasm.c.wasm_func_t, _: anytype) void {
+			instance.currentSide = .client;
+			instance.invokeFunc(func, .{}, void) catch {};
+		}
+	}.wrapper);
+	callback: ?CallbackFunc = null,
 	arg: usize = 0,
 
 	pub fn run(self: Callback) void {
 		if(self.callback) |callback| {
-			callback(self.arg);
+			callback.invoke(.{self.arg});
 		}
 	}
 };
@@ -482,7 +488,7 @@ fn openWindowCallbackFunction(windowPtr: usize) void {
 }
 pub fn openWindowCallback(comptime id: []const u8) Callback {
 	return .{
-		.callback = &openWindowCallbackFunction,
+		.callback = .initFromCode(&openWindowCallbackFunction),
 		.arg = @intFromPtr(&@field(windowlist, id).window),
 	};
 }

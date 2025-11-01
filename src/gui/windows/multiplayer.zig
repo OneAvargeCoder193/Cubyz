@@ -91,10 +91,10 @@ pub fn onOpen() void {
 	//                                               255.255.255.255:?65536 (longest possible ip address)
 	ipAddressLabel = Label.init(.{0, 0}, width, "                      ", .center);
 	list.add(ipAddressLabel);
-	list.add(Button.initText(.{0, 0}, 100, "Copy IP", .{.callback = &copyIp}));
-	ipAddressEntry = TextInput.init(.{0, 0}, width, 32, settings.lastUsedIPAddress, .{.callback = &join}, .{});
+	list.add(Button.initText(.{0, 0}, 100, "Copy IP", .{.callback = .initFromCode(&copyIp)}));
+	ipAddressEntry = TextInput.init(.{0, 0}, width, 32, settings.lastUsedIPAddress, .{.callback = .initFromCode(&join)}, .{});
 	list.add(ipAddressEntry);
-	list.add(Button.initText(.{0, 0}, 100, "Join", .{.callback = &join}));
+	list.add(Button.initText(.{0, 0}, 100, "Join", .{.callback = .initFromCode(&join)}));
 	list.finish(.center);
 	window.rootComponent = list.toComponent();
 	window.contentSize = window.rootComponent.?.pos() + window.rootComponent.?.size() + @as(Vec2f, @splat(padding));

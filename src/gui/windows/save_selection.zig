@@ -147,9 +147,9 @@ pub fn onOpen() void {
 
 	for(worldList.items, 0..) |worldInfo, i| {
 		const row = HorizontalList.init();
-		row.add(Button.initText(.{0, 0}, 128, worldInfo.name, .{.callback = &openWorldWrap, .arg = i}));
-		row.add(Button.initIcon(.{8, 0}, .{16, 16}, fileExplorerIcon, false, .{.callback = &openFolder, .arg = i}));
-		row.add(Button.initIcon(.{8, 0}, .{16, 16}, deleteIcon, false, .{.callback = &deleteWorld, .arg = i}));
+		row.add(Button.initText(.{0, 0}, 128, worldInfo.name, .{.callback = .initFromCode(&openWorldWrap), .arg = i}));
+		row.add(Button.initIcon(.{8, 0}, .{16, 16}, fileExplorerIcon, false, .{.callback = .initFromCode(&openFolder), .arg = i}));
+		row.add(Button.initIcon(.{8, 0}, .{16, 16}, deleteIcon, false, .{.callback = .initFromCode(&deleteWorld), .arg = i}));
 		row.finish(.{0, 0}, .center);
 		list.add(row);
 	}

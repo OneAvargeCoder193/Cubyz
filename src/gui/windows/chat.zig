@@ -160,7 +160,7 @@ fn refresh() void {
 }
 
 pub fn onOpen() void {
-	input = TextInput.init(.{0, 0}, 256, 32, "", .{.callback = &sendMessage}, .{.onUp = .{.callback = loadNextHistoryEntry}, .onDown = .{.callback = loadPreviousHistoryEntry}});
+	input = TextInput.init(.{0, 0}, 256, 32, "", .{.callback = .initFromCode(&sendMessage)}, .{.onUp = .{.callback = .initFromCode(loadNextHistoryEntry)}, .onDown = .{.callback = .initFromCode(loadPreviousHistoryEntry)}});
 	refresh();
 }
 
@@ -261,4 +261,8 @@ pub fn sendMessage(_: usize) void {
 			input.clear();
 		}
 	}
+}
+
+pub fn showMessageWasm(_: *main.wasm.WasmInstance, msg: []const u8) void {
+	addMessage(msg);
 }

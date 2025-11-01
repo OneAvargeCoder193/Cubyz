@@ -69,10 +69,10 @@ pub fn onOpen() void {
 	//                                           255.255.255.255:?65536 (longest possible ip address)
 	ipAddressLabel = Label.init(.{0, 0}, width, "                      ", .center);
 	list.add(ipAddressLabel);
-	list.add(Button.initText(.{0, 0}, 100, "Copy IP", .{.callback = &copyIp}));
-	ipAddressEntry = TextInput.init(.{0, 0}, width, 32, settings.lastUsedIPAddress, .{.callback = &invite}, .{});
+	list.add(Button.initText(.{0, 0}, 100, "Copy IP", .{.callback = .initFromCode(&copyIp)}));
+	ipAddressEntry = TextInput.init(.{0, 0}, width, 32, settings.lastUsedIPAddress, .{.callback = .initFromCode(&invite)}, .{});
 	list.add(ipAddressEntry);
-	list.add(Button.initText(.{0, 0}, 100, "Invite", .{.callback = &invite}));
+	list.add(Button.initText(.{0, 0}, 100, "Invite", .{.callback = .initFromCode(&invite)}));
 	list.add(Button.initText(.{0, 0}, 100, "Manage Players", gui.openWindowCallback("manage_players")));
 	list.add(CheckBox.init(.{0, 0}, width, "Allow anyone to join (requires a publicly visible IP address+port which may need some configuration in your router)", main.server.connectionManager.allowNewConnections.load(.monotonic), &makePublic));
 	list.finish(.center);

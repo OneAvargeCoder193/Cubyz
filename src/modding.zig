@@ -48,6 +48,9 @@ fn loadMod(file: std.fs.File) !*wasm.WasmInstance {
 	mod.addImport("getPositionImpl", main.server.getPositionWasm) catch {};
 	mod.addImport("setPositionImpl", main.server.setPositionWasm) catch {};
 
+	// Client side functions
+	mod.addImport("showMessageImpl", main.gui.windowlist.chat.showMessageWasm) catch {};
+
 	// World related functions
 	mod.addImport("parseBlockImpl", main.blocks.parseBlockWasm) catch {};
 	mod.addImport("setBlockImpl", main.server.world_zig.setBlockWasm) catch {};

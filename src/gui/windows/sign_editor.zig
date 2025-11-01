@@ -52,9 +52,9 @@ fn apply(_: usize) void {
 pub fn onOpen() void {
 	const list = VerticalList.init(.{padding, 16 + padding}, 300, 16);
 	const width = 128 + padding;
-	textComponent = TextInput.init(.{0, 0}, width, 16*4 + 8, oldText, .{.callback = &apply}, .{});
+	textComponent = TextInput.init(.{0, 0}, width, 16*4 + 8, oldText, .{.callback = .initFromCode(&apply)}, .{});
 	list.add(textComponent);
-	list.add(Button.initText(.{0, 0}, 100, "Apply", .{.callback = &apply}));
+	list.add(Button.initText(.{0, 0}, 100, "Apply", .{.callback = .initFromCode(&apply)}));
 	list.finish(.center);
 	window.rootComponent = list.toComponent();
 	window.contentSize = window.rootComponent.?.pos() + window.rootComponent.?.size() + @as(Vec2f, @splat(padding));

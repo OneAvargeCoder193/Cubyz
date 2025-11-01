@@ -70,7 +70,7 @@ fn initContent() void {
 		const row = HorizontalList.init();
 		const label = Label.init(.{0, 3}, 56, "Search:", .right);
 
-		searchInput = TextInput.init(.{0, 0}, 288, 22, searchString, .{.callback = &filter}, .{});
+		searchInput = TextInput.init(.{0, 0}, 288, 22, searchString, .{.callback = .initFromCode(&filter)}, .{});
 
 		row.add(label);
 		row.add(searchInput);
