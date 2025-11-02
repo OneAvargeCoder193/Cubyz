@@ -90,6 +90,9 @@ const GuiCommandQueue = struct { // MARK: GuiCommandQueue
 			}
 		}
 		openWindows.append(window);
+		if(window.modded) {
+			window.initFn.invoke(.{});
+		}
 		window.onOpenFn.invoke(.{});
 		selectedWindow = null;
 	}
@@ -103,6 +106,9 @@ const GuiCommandQueue = struct { // MARK: GuiCommandQueue
 			if(_openWindow == window) {
 				_ = openWindows.swapRemove(i);
 				window.onCloseFn.invoke(.{});
+				if(window.modded) {
+					window.deinitFn.invoke(.{});
+				}
 				break;
 			}
 		}
@@ -136,7 +142,7 @@ pub fn initWindowList() void {
 		windowStruct.window.id = main.globalAllocator.dupe(u8, decl.name);
 		addWindow(&windowStruct.window);
 		const functionNames = [_][]const u8{"render", "update", "updateSelected", "updateHovered"};
-		const moddableFunctionNames = [_][]const u8{"onOpen", "onClose"};
+		const moddableFunctionNames = [_][]const u8{"onOpen", "onClose", "init", "deinit"};
 		inline for(functionNames) |function| {
 			if(@hasDecl(windowStruct, function)) {
 				@field(windowStruct.window, function ++ "Fn") = &@field(windowStruct, function);
@@ -154,7 +160,7 @@ pub fn initWindowList() void {
 	}
 }
 
-pub fn registerWindowWasm(instance: *main.wasm.WasmInstance, openName: []const u8, closeName: []const u8, name: []const u8,
+pub fn registerWindowWasm(instance: *main.wasm.WasmInstance, initName: []const u8, deinitName: []const u8, onOpenName: []const u8, onCloseName: []const u8, name: []const u8,
 	contentWidth: f32, contentHeight: f32,
 	windowScale: f32, spacing: f32,
 	relativePositionXData: []const u8,
@@ -177,8 +183,10 @@ pub fn registerWindowWasm(instance: *main.wasm.WasmInstance, openName: []const u
 		.closeIfMouseIsGrabbed = closeIfMouseIsGrabbed,
 		.closeable = closable,
 		.isHud = isHud,
-		.onOpenFn = .initFromWasm(instance, openName),
-		.onCloseFn = .initFromWasm(instance, closeName),
+		.onOpenFn = .initFromWasm(instance, onOpenName),
+		.onCloseFn = .initFromWasm(instance, onCloseName),
+		.initFn = .initFromWasm(instance, initName),
+		.deinitFn = .initFromWasm(instance, deinitName),
 		.modded = true,
 	};
 	addWindow(&windowStruct);
@@ -227,10 +235,9 @@ pub fn deinitWindowList() void {
 }
 
 pub fn init() void { // MARK: init()
-	inline for(@typeInfo(windowlist).@"struct".decls) |decl| {
-		const windowStruct = @field(windowlist, decl.name);
-		if(@hasDecl(windowStruct, "init")) {
-			windowStruct.init();
+	for(windowList.items) |windowRef| {
+		if(!windowRef.modded) {
+			windowRef.initFn.invoke(.{});
 		}
 	}
 	GuiWindow.__init();
@@ -264,11 +271,8 @@ pub fn deinit() void {
 	ContinuousSlider.__deinit();
 	DiscreteSlider.__deinit();
 	TextInput.__deinit();
-	inline for(@typeInfo(windowlist).@"struct".decls) |decl| {
-		const WindowStruct = @field(windowlist, decl.name);
-		if(@hasDecl(WindowStruct, "deinit")) {
-			WindowStruct.deinit();
-		}
+	for(windowList.items) |windowRef| {
+		windowRef.deinitFn.invoke(.{});
 	}
 	sparseSet.deinit(main.globalAllocator);
 	freeIndexList.deinit(main.globalAllocator);
@@ -448,6 +452,10 @@ pub fn openWindow(id: []const u8) void {
 	std.log.err("Could not find window with id {s}.", .{id});
 }
 
+pub fn openWindowWasm(_: *main.wasm.WasmInstance, id: []const u8) void {
+	openWindow(id);
+}
+
 pub fn openWindowFromRef(window: *GuiWindow) void {
 	GuiCommandQueue.scheduleCommand(.{.action = .open, .window = window});
 }
@@ -465,6 +473,9 @@ pub fn toggleWindow(id: []const u8) void {
 				}
 			}
 			openWindows.append(window);
+			if(window.modded) {
+				window.initFn.invoke(.{});
+			}
 			window.onOpenFn.invoke(.{});
 			selectedWindow = null;
 			return;
@@ -505,6 +516,10 @@ pub fn closeWindow(id: []const u8) void {
 		}
 	}
 	std.log.err("Could not find window with id {s}.", .{id});
+}
+
+pub fn closeWindowWasm(_: *main.wasm.WasmInstance, id: []const u8) void {
+	closeWindow(id);
 }
 
 pub fn setSelectedTextInput(newSelectedTextInput: ?*TextInput) void {
@@ -709,6 +724,9 @@ pub fn toggleGameMenu() void {
 			if(window.closeIfMouseIsGrabbed) {
 				_ = openWindows.swapRemove(i);
 				window.onCloseFn.invoke(.{});
+				if(window.modded) {
+					window.deinitFn.invoke(.{});
+				}
 			} else {
 				i += 1;
 			}

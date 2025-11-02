@@ -60,6 +60,8 @@ fn loadMod(file: std.fs.File) !*wasm.WasmInstance {
 	mod.addImport("registerWindowImpl", main.gui.registerWindowWasm) catch {};
 	mod.addImport("setRootComponentImpl", main.gui.setRootComponentWasm) catch {};
 	mod.addImport("getRootComponentImpl", main.gui.getRootComponentWasm) catch {};
+	mod.addImport("openWindowImpl", main.gui.openWindowWasm) catch {};
+	mod.addImport("closeWindowImpl", main.gui.closeWindowWasm) catch {};
 
 	// Base gui component functions
 	mod.addImport("getComponentTypeImpl", main.gui.getComponentTypeWasm) catch {};
@@ -67,10 +69,17 @@ fn loadMod(file: std.fs.File) !*wasm.WasmInstance {
 	mod.addImport("guiComponentSizeImpl", main.gui.GuiComponent.guiComponentSizeWasm) catch {};
 	mod.addImport("guiComponentDeinitImpl", main.gui.deinitComponentWasm) catch {};
 
+	// Graphics functions
+	mod.addImport("initTextureFromFileImpl", main.graphics.initTextureFromFileWasm) catch {};
+	mod.addImport("deinitTextureImpl", main.graphics.deinitTextureWasm) catch {};
+
 	// Individual gui component functions
 	mod.addImport("initTextButtonImpl", main.gui.GuiComponent.Button.initTextWasm) catch {};
+	mod.addImport("initIconButtonImpl", main.gui.GuiComponent.Button.initIconWasm) catch {};
 
 	mod.addImport("initCheckBoxImpl", main.gui.GuiComponent.CheckBox.initWasm) catch {};
+
+	mod.addImport("initIconImpl", main.gui.GuiComponent.Icon.initWasm) catch {};
 
 	mod.addImport("initLabelImpl", main.gui.GuiComponent.Label.initWasm) catch {};
 

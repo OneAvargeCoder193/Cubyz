@@ -53,3 +53,8 @@ pub fn render(self: *Icon, _: Vec2f) void {
 	draw.setColor(0xffffffff);
 	self.texture.render(self.pos, self.size);
 }
+
+pub fn initWasm(_: *main.wasm.WasmInstance, posX: f32, posY: f32, sizeX: f32, sizeY: f32, textureId: u32, hasShadow: bool) u32 {
+	const label = init(.{posX, posY}, .{sizeX, sizeY}, .{.textureID = @intCast(textureId)}, hasShadow);
+	return @intFromEnum(label.index);
+}

@@ -2377,6 +2377,17 @@ pub const Texture = struct { // MARK: Texture
 	}
 };
 
+pub fn initTextureFromFileWasm(_: *main.wasm.WasmInstance, path: []const u8) u32 {
+	const realpath = main.files.cubyzDir().dir.realpathAlloc(main.stackAllocator.allocator, path) catch unreachable;
+	defer main.stackAllocator.free(realpath);
+	return @intCast(Texture.initFromFile(realpath).textureID);
+}
+
+pub fn deinitTextureWasm(_: *main.wasm.WasmInstance, _id: u32) void {
+	var id: c_uint = @intCast(_id);
+	c.glDeleteTextures(1, &id);
+}
+
 pub const CubeMapTexture = struct { // MARK: CubeMapTexture
 	textureID: c_uint,
 

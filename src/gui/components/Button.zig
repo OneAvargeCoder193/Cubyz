@@ -176,3 +176,8 @@ pub fn initTextWasm(instance: *main.wasm.WasmInstance, posX: f32, posY: f32, wid
 	const label = initText(.{posX, posY}, width, text, .{ .callback = .initFromWasm(instance, callback) });
 	return @intFromEnum(label.index);
 }
+
+pub fn initIconWasm(instance: *main.wasm.WasmInstance, posX: f32, posY: f32, sizeX: f32, sizeY: f32, texture: u32, hasShadow: bool, callback: []const u8) u32 {
+	const label = initIcon(.{posX, posY}, .{sizeX, sizeY}, .{.textureID = texture}, hasShadow, .{ .callback = .initFromWasm(instance, callback) });
+	return @intFromEnum(label.index);
+}

@@ -101,6 +101,15 @@ pub const WasmInstance = struct {
 	}
 
 	pub fn instantiate(self: *WasmInstance) !void {
+		for(self.importList, 0..) |import, i| {
+			const importType = self.importTypes.data[i];
+			var importNameVec = c.wasm_importtype_name(importType).*;
+			const importName = importNameVec.data[0..importNameVec.size];
+			if(import == null) {
+				std.log.err("Missing import: {s}\n", .{importName});
+				return error.MissingImport;
+			}
+		}
 		var imports: c.wasm_extern_vec_t = undefined;
 		c.wasm_extern_vec_new(&imports, self.importList.len, self.importList.ptr);
 		defer c.wasm_extern_vec_delete(&imports);

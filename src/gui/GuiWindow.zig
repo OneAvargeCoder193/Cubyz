@@ -97,7 +97,7 @@ pub const OnOpen = main.wasm.ModdableFunction(fn() void, struct {
 	}
 }.wasmWrapper);
 
-pub const OnClose = main.wasm.ModdableFunction(fn() void, struct {
+pub const WindowFunc = main.wasm.ModdableFunction(fn() void, struct {
 	fn wasmWrapper(instance: *main.wasm.WasmInstance, func: *main.wasm.c.wasm_func_t, _: anytype) void {
 		instance.currentSide = .client;
 		instance.invokeFunc(func, .{}, void) catch {};
@@ -134,7 +134,11 @@ updateHoveredFn: *const fn() void = &defaultFunction,
 
 onOpenFn: OnOpen = .initFromCode(&defaultFunction),
 
-onCloseFn: OnClose = .initFromCode(&defaultFunction),
+onCloseFn: WindowFunc = .initFromCode(&defaultFunction),
+
+initFn: WindowFunc = .initFromCode(&defaultFunction),
+
+deinitFn: WindowFunc = .initFromCode(&defaultFunction),
 
 var grabbedWindow: *const GuiWindow = undefined;
 var windowMoving: bool = false;
