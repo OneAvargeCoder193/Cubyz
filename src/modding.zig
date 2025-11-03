@@ -30,6 +30,9 @@ pub fn init() void {
 		};
 		mods.append(main.globalAllocator, mod);
 	}
+	for(mods.items) |mod| {
+		mod.invoke("init", .{}, void) catch {};
+	}
 }
 
 fn loadMod(file: std.fs.File) !*wasm.WasmInstance {
@@ -39,6 +42,7 @@ fn loadMod(file: std.fs.File) !*wasm.WasmInstance {
 	mod.addImport("registerCommandImpl", main.server.command.registerCommandWasm) catch {};
 	mod.addImport("sendMessageImpl", main.server.sendRawMessageWasm) catch {};
 	mod.addImport("registerAssetImpl", main.server.world_zig.registerAssetWasm) catch {};
+	mod.addImport("registerCallbackImpl", main.callbacks.registerCallbackWasm) catch {};
 
 	// Player related functions
 	mod.addImport("addHealthImpl", main.items.Inventory.Sync.addHealthWasm) catch {};
@@ -98,6 +102,9 @@ fn loadMod(file: std.fs.File) !*wasm.WasmInstance {
 }
 
 pub fn deinit() void {
+	for(mods.items) |mod| {
+		mod.invoke("deinit", .{}, void) catch {};
+	}
 	for(mods.items) |mod| {
 		mod.deinit(main.globalAllocator);
 	}

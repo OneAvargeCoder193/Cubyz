@@ -348,7 +348,7 @@ pub const collision = struct {
 		return false;
 	}
 
-	pub fn touchBlocks(entity: *main.server.Entity, hitBox: Box, side: main.utils.Side, deltaTime: f64) void {
+	pub fn touchBlocks(entityId: u32, entity: *main.server.Entity, hitBox: Box, side: main.utils.Side, deltaTime: f64) void {
 		const boundingBox: Box = .{.min = entity.pos + hitBox.min, .max = entity.pos + hitBox.max};
 
 		const minX: i32 = @intFromFloat(@floor(boundingBox.min[0] - 0.01));
@@ -379,7 +379,7 @@ pub const collision = struct {
 					const touchY: bool = isBlockIntersecting(block.?, posX, posY, posZ, center, extentY);
 					const touchZ: bool = isBlockIntersecting(block.?, posX, posY, posZ, center, extentZ);
 					if(touchX or touchY or touchZ) {
-						_ = block.?.onTouch().run(.{.entity = entity, .source = block.?, .blockPos = .{posX, posY, posZ}, .deltaTime = deltaTime});
+						_ = block.?.onTouch().run(.{.id = entityId, .source = block.?, .blockPos = .{posX, posY, posZ}, .deltaTime = deltaTime});
 					}
 				}
 			}

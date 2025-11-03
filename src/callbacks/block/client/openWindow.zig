@@ -19,7 +19,7 @@ pub fn init(zon: ZonElement) ?*@This() {
 	return result;
 }
 
-pub fn run(self: *@This(), _: main.callbacks.ClientBlockCallback.Params) main.callbacks.Result {
+pub fn run(self: *@This(), _: main.callbacks.CallbackList.ClientBlockCallback.Params) main.callbacks.Result {
 	main.gui.openWindow(self.windowName);
 	main.Window.setMouseGrabbed(false);
 	return .handled;

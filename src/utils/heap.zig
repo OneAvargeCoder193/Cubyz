@@ -31,6 +31,9 @@ pub const allocators = struct { // MARK: allocators
 		defer worldArenaMutex.unlock();
 		if(worldArenaOpenCount == 0) {
 			worldArenaAllocator = .init(handledGpa.allocator());
+			for(main.modding.mods.items) |mod| {
+				mod.invoke("initWorldArena", .{}, void) catch {};
+			}
 		}
 		worldArenaOpenCount += 1;
 	}
@@ -43,6 +46,9 @@ pub const allocators = struct { // MARK: allocators
 			std.log.info("Clearing world arena with {} MiB", .{worldArenaAllocator.arena.queryCapacity() >> 20});
 			worldArenaAllocator.deinit();
 			worldArenaAllocator = undefined;
+			for(main.modding.mods.items) |mod| {
+				mod.invoke("deinitWorldArena", .{}, void) catch {};
+			}
 		}
 	}
 };

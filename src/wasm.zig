@@ -132,9 +132,9 @@ pub const WasmInstance = struct {
 			.float => 1,
 			.pointer => |ptr| switch(ptr.size) {
 				.slice => 2,
-				else => std.debug.panic("Illegal type {s} inside wasm import\n", .{@typeName(T)})
+				else => @compileError(std.fmt.comptimePrint("Illegal type {s} inside wasm import\n", .{@typeName(T)})),
 			},
-			else => std.debug.panic("Illegal type {s} inside wasm import\n", .{@typeName(T)}),
+			else => @compileError(std.fmt.comptimePrint("Illegal type {s} inside wasm import\n", .{@typeName(T)})),
 		};
 	}
 
@@ -237,7 +237,7 @@ pub const WasmInstance = struct {
 		const retValTypes: [getNumberArgs(@typeInfo(@TypeOf(func)).@"fn".return_type.?)]c.wasm_valkind_t = comptime blk: {
 			const args = typeToValType(@typeInfo(@TypeOf(func)).@"fn".return_type.?);
 			if(args.len == 2) {
-				std.debug.panic("Illegal return value in wasm {s}\n", .{@typeName(@typeInfo(@TypeOf(func)).@"fn".return_type.?)});
+				@compileError(std.fmt.comptimePrint("Illegal return value in wasm {s}\n", .{@typeName(@typeInfo(@TypeOf(func)).@"fn".return_type.?)}));
 			} else if (args.len == 1) {
 				break :blk [_]c.wasm_valkind_t{args[0]};
 			}
