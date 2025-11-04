@@ -59,6 +59,7 @@ fn loadMod(file: std.fs.File) !*wasm.WasmInstance {
 	// World related functions
 	mod.addImport("parseBlockImpl", main.blocks.parseBlockWasm) catch {};
 	mod.addImport("setBlockImpl", main.server.world_zig.setBlockWasm) catch {};
+	mod.addImport("getBlockImpl", main.server.world_zig.getBlockWasm) catch {};
 
 	// Gui window related functions
 	mod.addImport("registerWindowImpl", main.gui.registerWindowWasm) catch {};

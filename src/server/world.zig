@@ -1267,6 +1267,11 @@ pub fn setBlockWasm(instance: *main.wasm.WasmInstance, block: u32, x: i32, y: i3
 	server.world.?.updateBlock(x, y, z, @bitCast(block));
 }
 
+pub fn getBlockWasm(instance: *main.wasm.WasmInstance, x: i32, y: i32, z: i32) u32 {
+	if(instance.currentSide == .client or server.world == null) return;
+	return @bitCast(server.world.?.getBlock(x, y, z));
+}
+
 pub fn registerAssetWasm(_: *main.wasm.WasmInstance, path: []const u8, contents: []const u8) void {
 	const dirPath = std.fs.path.dirname(path).?;
 	const subPath = std.fmt.allocPrint(main.stackAllocator.allocator, "saves/{s}/assets/{s}", .{ServerWorld.currentPath, dirPath}) catch unreachable;
