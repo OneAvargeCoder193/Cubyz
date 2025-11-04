@@ -15,7 +15,10 @@ pub const CallbackList = struct {
 	pub const ServerBlockCallback = Callback(struct {block: Block, chunk: *main.chunk.ServerChunk, x: i32, y: i32, z: i32}, struct{
 		fn wrapper(instance: *main.wasm.WasmInstance, func: *main.wasm.c.wasm_func_t, args: anytype) Result {
 			instance.currentSide = .server;
-			return @enumFromInt(instance.invokeFunc(func, .{@as(u32, @intCast(@intFromPtr(args[0]))), @as(u32, @bitCast(args[1].block)), args[1].x, args[1].y, args[1].z}, u1) catch 0);
+			const wx = args[1].chunk.super.pos.wx + args[1].x;
+			const wy = args[1].chunk.super.pos.wy + args[1].y;
+			const wz = args[1].chunk.super.pos.wz + args[1].z;
+			return @enumFromInt(instance.invokeFunc(func, .{@as(u32, @intCast(@intFromPtr(args[0]))), @as(u32, @bitCast(args[1].block)), wx, wy, wz}, u1) catch 0);
 		}
 	}.wrapper, @import("block/server/_list.zig"));
 	pub const BlockTouchCallback = Callback(struct {id: u32, source: Block, blockPos: Vec3i, deltaTime: f64}, struct{
