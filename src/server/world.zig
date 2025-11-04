@@ -1268,7 +1268,10 @@ pub fn setBlockWasm(instance: *main.wasm.WasmInstance, block: u32, x: i32, y: i3
 }
 
 pub fn getBlockWasm(instance: *main.wasm.WasmInstance, x: i32, y: i32, z: i32) u32 {
-	if(instance.currentSide == .client or server.world == null) return;
+	if(instance.currentSide == .client) {
+		return @bitCast(main.renderer.mesh_storage.getBlockFromRenderThread(x, y, z));
+	}
+	if(server.world == null) return 0;
 	return @bitCast(server.world.?.getBlock(x, y, z));
 }
 
