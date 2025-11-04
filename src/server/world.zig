@@ -1272,7 +1272,7 @@ pub fn getBlockWasm(instance: *main.wasm.WasmInstance, x: i32, y: i32, z: i32) u
 		return @bitCast(main.renderer.mesh_storage.getBlockFromRenderThread(x, y, z) orelse return 0);
 	}
 	if(server.world == null) return 0;
-	return @bitCast(server.world.?.getBlock(x, y, z));
+	return @bitCast(server.world.?.getBlock(x, y, z) orelse return 0);
 }
 
 pub fn registerAssetWasm(_: *main.wasm.WasmInstance, path: []const u8, contents: []const u8) void {
