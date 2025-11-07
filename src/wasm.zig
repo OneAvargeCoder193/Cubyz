@@ -54,6 +54,16 @@ pub fn ModdableFunction(comptime FuncType: type, wasmWrapper: fn(instance: *Wasm
 	};
 }
 
+pub fn clientNoWrapper(instance: *WasmInstance, func: *c.wasm_func_t, args: anytype) void {
+	instance.currentSide = .client;
+	instance.invokeFunc(func, args, void) catch unreachable;
+}
+
+pub fn serverNoWrapper(instance: *WasmInstance, func: *c.wasm_func_t, args: anytype) void {
+	instance.currentSide = .server;
+	instance.invokeFunc(func, args, void) catch unreachable;
+}
+
 pub const WasmInstance = struct {
 	module: ?*c.wasm_module_t,
 	instantiated: bool = false,
@@ -95,6 +105,7 @@ pub const WasmInstance = struct {
 			c.wasm_instance_delete(self.instance);
 			c.wasm_exporttype_vec_delete(&self.exportTypes);
 			c.wasm_extern_vec_delete(&self.exports);
+		} else {
 			main.globalAllocator.free(self.importList);
 		}
 		allocator.destroy(self);
@@ -113,6 +124,7 @@ pub const WasmInstance = struct {
 		var imports: c.wasm_extern_vec_t = undefined;
 		c.wasm_extern_vec_new(&imports, self.importList.len, self.importList.ptr);
 		defer c.wasm_extern_vec_delete(&imports);
+		main.globalAllocator.free(self.importList);
 		self.instance = c.wasm_instance_new(store, self.module, &imports, null) orelse {
 			const err = main.stackAllocator.alloc(u8, @intCast(c.wasmer_last_error_length()));
 			_ = c.wasmer_last_error_message(err.ptr, @intCast(err.len));
@@ -229,6 +241,66 @@ pub const WasmInstance = struct {
 				else => std.debug.panic("Illegal type {s} inside wasm import\n", .{@typeName(T)}),
 			},
 			else => std.debug.panic("Illegal type {s} inside wasm import\n", .{@typeName(T)}),
+		};
+	}
+
+	fn littleToNative(comptime T: type, val: T) T {
+		const info = @typeInfo(T);
+
+		return switch (info) {
+			.Struct => blk: {
+				var result: T = undefined;
+				inline for (info.Struct.fields) |field| {
+					@field(result, field.name) =
+						littleToNative(field.type, @field(val, field.name));
+				}
+				break :blk result;
+			},
+			.Int => std.mem.littleToNative(T, val),
+			.Float => blk: {
+				const IntT = std.meta.Int(.unsigned, @bitSizeOf(T));
+				const bits: IntT = @bitCast(val);
+				const swapped = std.mem.littleToNative(IntT, bits);
+				break :blk @bitCast(swapped);
+			},
+			.Array => blk: {
+				const out: T = undefined;
+				inline for (out, 0..) |*elem, i| {
+					elem.* = littleToNative(@TypeOf(elem.*), val[i]);
+				}
+				break :blk out;
+			},
+			else => val, // fallback: leave as-is (e.g. enums, bools, pointers, etc.)
+		};
+	}
+
+	pub fn nativeToLittle(comptime T: type, val: T) T {
+		const info = @typeInfo(T);
+
+		return switch (info) {
+			.Struct => blk: {
+				var result: T = undefined;
+				inline for (info.Struct.fields) |field| {
+					@field(result, field.name) =
+						nativeToLittle(field.type, @field(val, field.name));
+				}
+				break :blk result;
+			},
+			.Int => std.mem.nativeToLittle(T, val),
+			.Float => blk: {
+				const IntT = std.meta.Int(.unsigned, @bitSizeOf(T));
+				const bits: IntT = val;
+				const swapped = std.mem.nativeToLittle(IntT, bits);
+				break :blk @bitCast(swapped);
+			},
+			.Array => blk: {
+				const out: T = undefined;
+				inline for (out, 0..) |*elem, i| {
+					elem.* = nativeToLittle(@TypeOf(elem.*), val[i]);
+				}
+				break :blk out;
+			},
+			else => val,
 		};
 	}
 
@@ -387,14 +459,14 @@ pub const WasmInstance = struct {
 		return retVec.data[0..retVec.size];
 	}
 
-	pub fn alloc(self: *WasmInstance, amount: u32) !u32 {
+	pub fn alloc(self: *WasmInstance, amount: u32) u32 {
 		if(amount == 0) return 0;
-		return try self.invoke("alloc", .{amount}, u32);
+		return self.invoke("alloc", .{amount}, u32) catch unreachable;
 	}
 
-	pub fn free(self: *WasmInstance, ptr: u32, len: u32) !void {
+	pub fn free(self: *WasmInstance, ptr: u32, len: u32) void {
 		if(len == 0) return;
-		try self.invoke("free", .{ptr, len}, void);
+		self.invoke("free", .{ptr, len}, void) catch unreachable;
 	}
 
 	fn createSliceFromWasm(self: *WasmInstance, start: c.wasm_val_t, len: c.wasm_val_t) ![]u8 {
@@ -406,13 +478,18 @@ pub const WasmInstance = struct {
 	}
 
 	fn createWasmFromSlice(self: *WasmInstance, slice: []const u8) [2]c.wasm_val_t {
-		const memory = c.wasm_memory_data(self.memory);
-		const allocated = self.alloc(@intCast(slice.len)) catch unreachable;
-		@memcpy(memory[allocated..allocated + slice.len], slice);
+		const allocated = allocSlice(self, slice);
 		return [_]c.wasm_val_t{
 			.{.kind = c.WASM_I32, .of = .{.i32 = @bitCast(allocated)}},
 			.{.kind = c.WASM_I32, .of = .{.i32 = @intCast(slice.len)}}
 		};
+	}
+
+	pub fn allocSlice(self: *WasmInstance, slice: []const u8) u32 {
+		const memory = c.wasm_memory_data(self.memory);
+		const allocated = self.alloc(@intCast(slice.len));
+		@memcpy(memory[allocated..allocated + slice.len], slice);
+		return allocated;
 	}
 
 	pub fn setMemory(self: *WasmInstance, T: type, val: T, ptr: u32) void {

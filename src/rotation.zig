@@ -35,6 +35,7 @@ pub const Degrees = enum(u2) {
 /// With the `RotationMode` interface there is almost no limit to what can be done with those 16 bit.
 pub const RotationMode = struct { // MARK: RotationMode
 	pub const DefaultFunctions = struct {
+		pub fn empty() void {}
 		pub fn model(block: Block) ModelIndex {
 			return blocks.meshes.modelIndexStart(block);
 		}
@@ -144,29 +145,156 @@ pub const RotationMode = struct { // MARK: RotationMode
 	/// The default rotation data intended for generation algorithms
 	naturalStandard: u16 = 0,
 
-	model: *const fn(block: Block) ModelIndex = &DefaultFunctions.model,
+	initFn: main.wasm.ModdableFunction(fn() void, main.wasm.clientNoWrapper) = .initFromCode(&DefaultFunctions.empty),
+	deinitFn: main.wasm.ModdableFunction(fn() void, main.wasm.clientNoWrapper) = .initFromCode(&DefaultFunctions.empty),
+	resetFn: main.wasm.ModdableFunction(fn() void, main.wasm.clientNoWrapper) = .initFromCode(&DefaultFunctions.empty),
+
+	modelFn: main.wasm.ModdableFunction(fn(block: Block) ModelIndex, struct{
+		fn wrapper(instance: *main.wasm.WasmInstance, func: *main.wasm.c.wasm_func_t, args: anytype) ModelIndex {
+			instance.currentSide = .client;
+			const index = instance.invokeFunc(func, .{@as(u32, @bitCast(args[0]))}, u32) catch unreachable;
+			return @enumFromInt(index);
+		}
+	}.wrapper) = .initFromCode(&DefaultFunctions.model),
 
 	// Rotates block data counterclockwise around the Z axis.
-	rotateZ: *const fn(data: u16, angle: Degrees) u16 = DefaultFunctions.rotateZ,
+	rotateZFn: main.wasm.ModdableFunction(fn(data: u16, angle: Degrees) u16, struct{
+		fn wrapper(instance: *main.wasm.WasmInstance, func: *main.wasm.c.wasm_func_t, args: anytype) u16 {
+			instance.currentSide = .client;
+			return instance.invokeFunc(func, .{args[0], @intFromEnum(args[1])}, u16) catch unreachable;
+		}
+	}.wrapper) = .initFromCode(&DefaultFunctions.rotateZ),
 
-	createBlockModel: *const fn(block: Block, modeData: *u16, zon: ZonElement) ModelIndex = &DefaultFunctions.createBlockModel,
+	createBlockModelFn: main.wasm.ModdableFunction(fn(block: Block, modeData: *u16, zon: ZonElement) ModelIndex, struct{
+		fn wrapper(instance: *main.wasm.WasmInstance, func: *main.wasm.c.wasm_func_t, args: anytype) ModelIndex {
+			instance.currentSide = .client;
+			const data = instance.alloc(@sizeOf(u16));
+			defer instance.free(data, @sizeOf(u16));
+			const text = args[2].toStringEfficient(main.stackAllocator, "");
+			defer main.stackAllocator.free(text);
+			const textAlloc = instance.allocSlice(text);
+			defer instance.free(textAlloc, @intCast(text.len));
+			const index = instance.invokeFunc(func, .{@as(u32, @bitCast(args[0])), data, textAlloc}, u32) catch unreachable;
+			args[1].* = instance.getMemory(u16, data);
+			return @enumFromInt(index);
+		}
+	}.wrapper) = .initFromCode(&DefaultFunctions.createBlockModel),
 
 	/// Updates the block data of a block in the world or places a block in the world.
 	/// return true if the placing was successful, false otherwise.
-	generateData: *const fn(world: *main.game.World, pos: Vec3i, relativePlayerPos: Vec3f, playerDir: Vec3f, relativeDir: Vec3i, neighbor: ?Neighbor, currentData: *Block, neighborBlock: Block, blockPlacing: bool) bool = DefaultFunctions.generateData,
+	generateDataFn: main.wasm.ModdableFunction(fn(world: *main.game.World, pos: Vec3i, relativePlayerPos: Vec3f, playerDir: Vec3f, relativeDir: Vec3i, neighbor: ?Neighbor, currentData: *Block, neighborBlock: Block, blockPlacing: bool) bool, struct{
+		fn wrapper(instance: *main.wasm.WasmInstance, func: *main.wasm.c.wasm_func_t, args: anytype) bool {
+			instance.currentSide = .client;
+			const data = instance.alloc(@sizeOf(u32));
+			defer instance.free(data, @sizeOf(u32));
+			instance.setMemory(u32, data, @bitCast(args[6].*));
+			defer args[6].* = @bitCast(instance.getMemory(u32, data));
+			return instance.invokeFunc(func, .{args[1][0], args[1][1], args[1][2], args[2][0], args[2][1], args[2][2], args[3][0], args[3][1], args[3][2], args[4][0], args[4][1], args[4][2], args[5] != null, if(args[5]) |neighbor| @intFromEnum(neighbor) else 0, data, @as(u32, @bitCast(args[7])), args[8]}, bool) catch unreachable;
+		}
+	}.wrapper) = .initFromCode(&DefaultFunctions.generateData),
 
 	/// Updates data of a placed block if the RotationMode dependsOnNeighbors.
-	updateData: *const fn(block: *Block, neighbor: Neighbor, neighborBlock: Block) bool = &DefaultFunctions.updateData,
+	updateDataFn: main.wasm.ModdableFunction(fn(block: *Block, neighbor: Neighbor, neighborBlock: Block) bool, struct{
+		fn wrapper(instance: *main.wasm.WasmInstance, func: *main.wasm.c.wasm_func_t, args: anytype) bool {
+			instance.currentSide = .client;
+			const data = instance.alloc(@sizeOf(u32));
+			defer instance.free(data, @sizeOf(u32));
+			instance.setMemory(u32, data, @bitCast(args[0].*));
+			defer args[0].* = @bitCast(instance.getMemory(u32, data));
+			return instance.invokeFunc(func, .{data, @intFromEnum(args[1]), @as(u32, @bitCast(args[2]))}, bool) catch unreachable;
+		}
+	}.wrapper) = .initFromCode(&DefaultFunctions.updateData),
 
-	modifyBlock: *const fn(block: *Block, newType: u16) bool = DefaultFunctions.modifyBlock,
+	modifyBlockFn: main.wasm.ModdableFunction(fn(block: *Block, newType: u16) bool, struct{
+		fn wrapper(instance: *main.wasm.WasmInstance, func: *main.wasm.c.wasm_func_t, args: anytype) bool {
+			instance.currentSide = .client;
+			const data = instance.alloc(@sizeOf(u32));
+			defer instance.free(data, @sizeOf(u32));
+			instance.setMemory(u32, data, @bitCast(args[0].*));
+			defer args[0].* = @bitCast(instance.getMemory(u32, data));
+			return instance.invokeFunc(func, .{data, args[1]}, bool) catch unreachable;
+		}
+	}.wrapper) = .initFromCode(&DefaultFunctions.modifyBlock),
 
-	rayIntersection: *const fn(block: Block, item: ?main.items.Item, relativePlayerPos: Vec3f, playerDir: Vec3f) ?RayIntersectionResult = &DefaultFunctions.rayIntersection,
+	rayIntersectionFn: main.wasm.ModdableFunction(fn(block: Block, item: ?main.items.Item, relativePlayerPos: Vec3f, playerDir: Vec3f) ?RayIntersectionResult, struct{
+		fn wrapper(instance: *main.wasm.WasmInstance, _: *main.wasm.c.wasm_func_t, _: anytype) ?RayIntersectionResult {
+			instance.currentSide = .client;
+			@panic("rayIntersection is not implemented for wasm mods.");
+		}
+	}.wrapper) = .initFromCode(&DefaultFunctions.rayIntersection),
 
-	onBlockBreaking: *const fn(item: ?main.items.Item, relativePlayerPos: Vec3f, playerDir: Vec3f, currentData: *Block) void = &DefaultFunctions.onBlockBreaking,
+	onBlockBreakingFn: main.wasm.ModdableFunction(fn(item: ?main.items.Item, relativePlayerPos: Vec3f, playerDir: Vec3f, currentData: *Block) void, struct{
+		fn wrapper(instance: *main.wasm.WasmInstance, _: *main.wasm.c.wasm_func_t, _: anytype) void {
+			instance.currentSide = .client;
+			@panic("onBlockBreaking is not implemented for wasm mods.");
+		}
+	}.wrapper) = .initFromCode(&DefaultFunctions.onBlockBreaking),
 
-	canBeChangedInto: *const fn(oldBlock: Block, newBlock: Block, item: main.items.ItemStack, shouldDropSourceBlockOnSuccess: *bool) CanBeChangedInto = DefaultFunctions.canBeChangedInto,
+	canBeChangedIntoFn: main.wasm.ModdableFunction(fn(oldBlock: Block, newBlock: Block, item: main.items.ItemStack, shouldDropSourceBlockOnSuccess: *bool) CanBeChangedInto, struct{
+		fn wrapper(instance: *main.wasm.WasmInstance, _: *main.wasm.c.wasm_func_t, _: anytype) CanBeChangedInto {
+			instance.currentSide = .client;
+			@panic("canBeChangedInto is not implemented for wasm mods.");
+		}
+	}.wrapper) = .initFromCode(&DefaultFunctions.canBeChangedInto),
 
-	getBlockTags: *const fn() []const Tag = DefaultFunctions.getBlockTags,
+	getBlockTagsFn: main.wasm.ModdableFunction(fn() []const Tag, struct{
+		fn wrapper(instance: *main.wasm.WasmInstance, _: *main.wasm.c.wasm_func_t, _: anytype) []const Tag {
+			instance.currentSide = .client;
+			@panic("getBlockTags is not implemented for wasm mods.");
+		}
+	}.wrapper) = .initFromCode(&DefaultFunctions.getBlockTags),
+
+	pub fn init(self: RotationMode) void {
+		self.initFn.invoke(.{});
+	}
+
+	pub fn deinit(self: RotationMode) void {
+		self.deinitFn.invoke(.{});
+	}
+
+	pub fn reset(self: RotationMode) void {
+		self.resetFn.invoke(.{});
+	}
+
+	pub fn model(self: RotationMode, block: Block) ModelIndex {
+		return self.modelFn.invoke(.{block});
+	}
+
+	pub fn rotateZ(self: RotationMode, data: u16, angle: Degrees) u16 {
+		return self.rotateZFn.invoke(.{data, angle});
+	}
+
+	pub fn createBlockModel(self: RotationMode, block: Block, modeData: *u16, zon: ZonElement) ModelIndex {
+		return self.createBlockModelFn.invoke(.{block, modeData, zon});
+	}
+
+	pub fn generateData(self: RotationMode, world: *main.game.World, pos: Vec3i, relativePlayerPos: Vec3f, playerDir: Vec3f, relativeDir: Vec3i, neighbor: ?Neighbor, currentData: *Block, neighborBlock: Block, blockPlacing: bool) bool {
+		return self.generateDataFn.invoke(.{world, pos, relativePlayerPos, playerDir, relativeDir, neighbor, currentData, neighborBlock, blockPlacing});
+	}
+
+	pub fn updateData(self: RotationMode, block: *Block, neighbor: Neighbor, neighborBlock: Block) bool {
+		return self.updateDataFn.invoke(.{block, neighbor, neighborBlock});
+	}
+
+	pub fn modifyBlock(self: RotationMode, block: *Block, newType: u16) bool {
+		return self.modifyBlockFn.invoke(.{block, newType});
+	}
+
+	pub fn rayIntersection(self: RotationMode, block: Block, item: ?main.items.Item, relativePlayerPos: Vec3f, playerDir: Vec3f) ?RayIntersectionResult {
+		return self.rayIntersectionFn.invoke(.{block, item, relativePlayerPos, playerDir});
+	}
+
+	pub fn onBlockBreaking(self: RotationMode, item: ?main.items.Item, relativePlayerPos: Vec3f, playerDir: Vec3f, currentData: *Block) void {
+		self.onBlockBreakingFn.invoke(.{item, relativePlayerPos, playerDir, currentData});
+	}
+
+	pub fn canBeChangedInto(self: RotationMode, oldBlock: Block, newBlock: Block, item: main.items.ItemStack, shouldDropSourceBlockOnSuccess: *bool) CanBeChangedInto {
+		return self.canBeChangedIntoFn.invoke(.{oldBlock, newBlock, item, shouldDropSourceBlockOnSuccess});
+	}
+
+	pub fn getBlockTags(self: RotationMode) []const Tag {
+		return self.getBlockTagsFn.invoke(.{});
+	}
 };
 
 var rotationModes: std.StringHashMap(RotationMode) = undefined;
@@ -188,16 +316,18 @@ pub fn init() void {
 }
 
 pub fn reset() void {
-	inline for(@typeInfo(list).@"struct".decls) |declaration| {
-		@field(list, declaration.name).reset();
+	var iter = rotationModes.valueIterator();
+	while(iter.next()) |mode| {
+		mode.reset();
 	}
 }
 
 pub fn deinit() void {
-	rotationModes.deinit();
-	inline for(@typeInfo(list).@"struct".decls) |declaration| {
-		@field(list, declaration.name).deinit();
+	var iter = rotationModes.valueIterator();
+	while(iter.next()) |mode| {
+		mode.deinit();
 	}
+	rotationModes.deinit();
 }
 
 pub fn getByID(id: []const u8) *RotationMode {
@@ -207,16 +337,18 @@ pub fn getByID(id: []const u8) *RotationMode {
 }
 
 pub fn register(comptime id: []const u8, comptime Mode: type) void {
-	Mode.init();
 	var result: RotationMode = RotationMode{};
 	inline for(@typeInfo(RotationMode).@"struct".fields) |field| {
 		if(@hasDecl(Mode, field.name)) {
-			if(field.type == @TypeOf(@field(Mode, field.name))) {
+			if(@typeInfo(field.type) != .@"fn") {
 				@field(result, field.name) = @field(Mode, field.name);
+			} else if(field.type == @TypeOf(@field(Mode, field.name))) {
+				@field(result, field.name ++ "Fn") = .initFromCode(@field(Mode, field.name));
 			} else {
-				@field(result, field.name) = &@field(Mode, field.name);
+				@field(result, field.name ++ "Fn") = .initFromCode(&@field(Mode, field.name));
 			}
 		}
 	}
+	result.init();
 	rotationModes.putNoClobber(id, result) catch unreachable;
 }
