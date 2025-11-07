@@ -306,6 +306,10 @@ pub fn parseBlockWasm(_: *main.wasm.WasmInstance, id: []const u8) u32 {
 	return @bitCast(parseBlock(id));
 }
 
+pub fn modelIndexStartWasm(_: *main.wasm.WasmInstance, block: u32) u32 {
+	return @intFromEnum(meshes.modelIndexStart(@bitCast(block)));
+}
+
 pub const Block = packed struct(u32) { // MARK: Block
 	typ: u16,
 	data: u16,

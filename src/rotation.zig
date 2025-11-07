@@ -161,7 +161,7 @@ pub const RotationMode = struct { // MARK: RotationMode
 	rotateZFn: main.wasm.ModdableFunction(fn(data: u16, angle: Degrees) u16, struct{
 		fn wrapper(instance: *main.wasm.WasmInstance, func: *main.wasm.c.wasm_func_t, args: anytype) u16 {
 			instance.currentSide = .client;
-			return instance.invokeFunc(func, .{args[0], @intFromEnum(args[1])}, u16) catch unreachable;
+			return instance.invokeFunc(func, .{args[0], @as(u32, @intFromEnum(args[1]))}, u16) catch unreachable;
 		}
 	}.wrapper) = .initFromCode(&DefaultFunctions.rotateZ),
 
@@ -174,7 +174,7 @@ pub const RotationMode = struct { // MARK: RotationMode
 			defer main.stackAllocator.free(text);
 			const textAlloc = instance.allocSlice(text);
 			defer instance.free(textAlloc, @intCast(text.len));
-			const index = instance.invokeFunc(func, .{@as(u32, @bitCast(args[0])), data, textAlloc}, u32) catch unreachable;
+			const index = instance.invokeFunc(func, .{@as(u32, @bitCast(args[0])), data, textAlloc, @as(u32, @intCast(text.len))}, u32) catch unreachable;
 			args[1].* = instance.getMemory(u16, data);
 			return @enumFromInt(index);
 		}
@@ -187,9 +187,9 @@ pub const RotationMode = struct { // MARK: RotationMode
 			instance.currentSide = .client;
 			const data = instance.alloc(@sizeOf(u32));
 			defer instance.free(data, @sizeOf(u32));
-			instance.setMemory(u32, data, @bitCast(args[6].*));
+			instance.setMemory(u32, @bitCast(args[6].*), data);
 			defer args[6].* = @bitCast(instance.getMemory(u32, data));
-			return instance.invokeFunc(func, .{args[1][0], args[1][1], args[1][2], args[2][0], args[2][1], args[2][2], args[3][0], args[3][1], args[3][2], args[4][0], args[4][1], args[4][2], args[5] != null, if(args[5]) |neighbor| @intFromEnum(neighbor) else 0, data, @as(u32, @bitCast(args[7])), args[8]}, bool) catch unreachable;
+			return instance.invokeFunc(func, .{args[1][0], args[1][1], args[1][2], args[2][0], args[2][1], args[2][2], args[3][0], args[3][1], args[3][2], args[4][0], args[4][1], args[4][2], args[5] != null, @as(u32, if(args[5]) |neighbor| @intFromEnum(neighbor) else 0), data, @as(u32, @bitCast(args[7])), args[8]}, bool) catch unreachable;
 		}
 	}.wrapper) = .initFromCode(&DefaultFunctions.generateData),
 
@@ -199,9 +199,9 @@ pub const RotationMode = struct { // MARK: RotationMode
 			instance.currentSide = .client;
 			const data = instance.alloc(@sizeOf(u32));
 			defer instance.free(data, @sizeOf(u32));
-			instance.setMemory(u32, data, @bitCast(args[0].*));
+			instance.setMemory(u32, @bitCast(args[0].*), data);
 			defer args[0].* = @bitCast(instance.getMemory(u32, data));
-			return instance.invokeFunc(func, .{data, @intFromEnum(args[1]), @as(u32, @bitCast(args[2]))}, bool) catch unreachable;
+			return instance.invokeFunc(func, .{data, @as(u32, @intFromEnum(args[1])), @as(u32, @bitCast(args[2]))}, bool) catch unreachable;
 		}
 	}.wrapper) = .initFromCode(&DefaultFunctions.updateData),
 
@@ -210,7 +210,7 @@ pub const RotationMode = struct { // MARK: RotationMode
 			instance.currentSide = .client;
 			const data = instance.alloc(@sizeOf(u32));
 			defer instance.free(data, @sizeOf(u32));
-			instance.setMemory(u32, data, @bitCast(args[0].*));
+			instance.setMemory(u32, @bitCast(args[0].*), data);
 			defer args[0].* = @bitCast(instance.getMemory(u32, data));
 			return instance.invokeFunc(func, .{data, args[1]}, bool) catch unreachable;
 		}
@@ -313,6 +313,9 @@ pub fn init() void {
 	inline for(@typeInfo(list).@"struct".decls) |declaration| {
 		register(declaration.name, @field(list, declaration.name));
 	}
+	for(main.modding.mods.items) |mod| {
+		mod.invoke("registerRotationModes", .{}, void) catch {};
+	}
 }
 
 pub fn reset() void {
@@ -339,16 +342,46 @@ pub fn getByID(id: []const u8) *RotationMode {
 pub fn register(comptime id: []const u8, comptime Mode: type) void {
 	var result: RotationMode = RotationMode{};
 	inline for(@typeInfo(RotationMode).@"struct".fields) |field| {
-		if(@hasDecl(Mode, field.name)) {
-			if(@typeInfo(field.type) != .@"fn") {
+		if(!std.mem.eql(u8, field.name[field.name.len - 2..], "Fn")) {
+			if(@hasDecl(Mode, field.name)) {
 				@field(result, field.name) = @field(Mode, field.name);
-			} else if(field.type == @TypeOf(@field(Mode, field.name))) {
-				@field(result, field.name ++ "Fn") = .initFromCode(@field(Mode, field.name));
-			} else {
-				@field(result, field.name ++ "Fn") = .initFromCode(&@field(Mode, field.name));
+			}
+		} else {
+			if(@hasDecl(Mode, field.name[0..field.name.len - 2])) {
+				@field(result, field.name) = .initFromCode(@field(Mode, field.name[0..field.name.len - 2]));
 			}
 		}
 	}
 	result.init();
 	rotationModes.putNoClobber(id, result) catch unreachable;
+}
+
+pub fn registerRotationModeWasm(
+	instance: *main.wasm.WasmInstance,
+	id: []const u8, dependsOnNeighbors: ?bool, naturalStandard: ?u16,
+	initFn: []const u8, deinitFn: []const u8, resetFn: []const u8,
+	modelFn: []const u8, rotateZFn: []const u8,
+	createBlockModelFn: []const u8, generateDataFn: []const u8,
+	updateDataFn: []const u8, modifyBlockFn: []const u8,
+	rayIntersectionFn: []const u8, onBlockBreakingFn: []const u8,
+	canBeChangedIntoFn: []const u8, getBlockTagsFn: []const u8,
+) void {
+	var result: RotationMode = .{};
+	if(dependsOnNeighbors) |_| result.dependsOnNeighbors = dependsOnNeighbors.?;
+	if(naturalStandard) |_| result.naturalStandard = naturalStandard.?;
+	result.initFn = .initFromWasm(instance, initFn);
+	result.deinitFn = .initFromWasm(instance, deinitFn);
+	result.resetFn = .initFromWasm(instance, resetFn);
+	if(modelFn.len != 0) result.modelFn = .initFromWasm(instance, modelFn);
+	if(rotateZFn.len != 0) result.rotateZFn = .initFromWasm(instance, rotateZFn);
+	if(createBlockModelFn.len != 0) result.createBlockModelFn = .initFromWasm(instance, createBlockModelFn);
+	if(generateDataFn.len != 0) result.generateDataFn = .initFromWasm(instance, generateDataFn);
+	if(updateDataFn.len != 0) result.updateDataFn = .initFromWasm(instance, updateDataFn);
+	if(modifyBlockFn.len != 0) result.modifyBlockFn = .initFromWasm(instance, modifyBlockFn);
+	if(rayIntersectionFn.len != 0) result.rayIntersectionFn = .initFromWasm(instance, rayIntersectionFn);
+	if(onBlockBreakingFn.len != 0) result.onBlockBreakingFn = .initFromWasm(instance, onBlockBreakingFn);
+	if(canBeChangedIntoFn.len != 0) result.canBeChangedIntoFn = .initFromWasm(instance, canBeChangedIntoFn);
+	if(getBlockTagsFn.len != 0) result.getBlockTagsFn = .initFromWasm(instance, getBlockTagsFn);
+	result.init();
+	rotationModes.put(id, result) catch unreachable;
 }

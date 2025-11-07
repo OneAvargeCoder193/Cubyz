@@ -146,6 +146,8 @@ pub const WasmInstance = struct {
 				.slice => 2,
 				else => @compileError(std.fmt.comptimePrint("Illegal type {s} inside wasm import\n", .{@typeName(T)})),
 			},
+			.optional => |opt| getNumberArgs(opt.child) + 1,
+			.array => |arr| arr.len * getNumberArgs(arr.child),
 			else => @compileError(std.fmt.comptimePrint("Illegal type {s} inside wasm import\n", .{@typeName(T)})),
 		};
 	}
@@ -196,8 +198,23 @@ pub const WasmInstance = struct {
 				.slice => [_]c.wasm_valkind_t{c.WASM_I32, c.WASM_I32},
 				else => @compileError(std.fmt.comptimePrint("Illegal type {s} inside wasm import\n", .{@typeName(T)})),
 			},
+			.optional => |opt| [_]c.wasm_valkind_t{c.WASM_I32} ++ typeToValType(opt.child),
+			.array => |arr| typeToValType(arr.child) ** arr.len,
 			else => @compileError(std.fmt.comptimePrint("Illegal type {s} inside wasm import\n", .{@typeName(T)})),
 		};
+	}
+
+	fn defaultVal(comptime T: type) [getNumberArgs(T)]c.wasm_val_t {
+		const valTypes = typeToValType(T);
+		const vals: [valTypes.len]c.wasm_val_t = undefined;
+		inline for(vals.len) |i| {
+			vals[i] = switch(valTypes[i]) {
+				c.WASM_I32 => .{.kind = c.WASM_I32, .of = .{.i32 = 0}},
+				c.WASM_I64 => .{.kind = c.WASM_I64, .of = .{.i64 = 0}},
+				c.WASM_F32 => .{.kind = c.WASM_F32, .of = .{.f32 = 0.0}},
+				c.WASM_F64 => .{.kind = c.WASM_F64, .of = .{.f64 = 0.0}},
+			};
+		}
 	}
 
 	fn wasmToValue(self: *WasmInstance, comptime T: type, vals: [getNumberArgs(T)]c.wasm_val_t) T {
@@ -217,6 +234,15 @@ pub const WasmInstance = struct {
 			.pointer => |ptr| switch(ptr.size) {
 				.slice => self.createSliceFromWasm(vals[0], vals[1]) catch unreachable,
 				else => @compileError(std.fmt.comptimePrint("Illegal type {s} inside wasm import\n", .{@typeName(T)})),
+			},
+			.optional => |opt| if(self.wasmToValue(bool, vals[0..1].*)) self.wasmToValue(opt.child, vals[1..vals.len].*) else null,
+			.array => |arr| blk: {
+				var array: T = undefined;
+				const childSize = getNumberArgs(arr.child);
+				inline for(0..arr.len) |i| {
+					array[i] = self.wasmToValue(arr.child, vals[i*childSize..i*childSize+childSize].*);
+				}
+				break: blk array;
 			},
 			else => @compileError(std.fmt.comptimePrint("Illegal type {s} inside wasm import\n", .{@typeName(T)})),
 		};
@@ -239,6 +265,10 @@ pub const WasmInstance = struct {
 			.pointer => |ptr| switch(ptr.size) {
 				.slice => self.createWasmFromSlice(val),
 				else => std.debug.panic("Illegal type {s} inside wasm import\n", .{@typeName(T)}),
+			},
+			.optional => |opt| [_]c.wasm_val_t{
+				self.valueToWasm(bool, val != null),
+				if(val != null) self.valueToWasm(opt.child, val.?) else defaultVal(opt.child),
 			},
 			else => std.debug.panic("Illegal type {s} inside wasm import\n", .{@typeName(T)}),
 		};
