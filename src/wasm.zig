@@ -274,28 +274,28 @@ pub const WasmInstance = struct {
 		};
 	}
 
-	pub fn littleToNative(comptime T: type, val: T) T {
+	fn littleToNative(comptime T: type, val: T) T {
 		const info = @typeInfo(T);
 
 		return switch (info) {
-			.@"struct" => blk: {
+			.Struct => blk: {
 				var result: T = undefined;
-				inline for (info.@"struct".fields) |field| {
+				inline for (info.Struct.fields) |field| {
 					@field(result, field.name) =
 						littleToNative(field.type, @field(val, field.name));
 				}
 				break :blk result;
 			},
-			.int => std.mem.littleToNative(T, val),
-			.float => blk: {
+			.Int => std.mem.littleToNative(T, val),
+			.Float => blk: {
 				const IntT = std.meta.Int(.unsigned, @bitSizeOf(T));
 				const bits: IntT = @bitCast(val);
 				const swapped = std.mem.littleToNative(IntT, bits);
 				break :blk @bitCast(swapped);
 			},
-			.array => blk: {
-				var out: T = undefined;
-				inline for (&out, 0..) |*elem, i| {
+			.Array => blk: {
+				const out: T = undefined;
+				inline for (out, 0..) |*elem, i| {
 					elem.* = littleToNative(@TypeOf(elem.*), val[i]);
 				}
 				break :blk out;
@@ -308,24 +308,24 @@ pub const WasmInstance = struct {
 		const info = @typeInfo(T);
 
 		return switch (info) {
-			.@"struct" => blk: {
+			.Struct => blk: {
 				var result: T = undefined;
-				inline for (info.@"struct".fields) |field| {
+				inline for (info.Struct.fields) |field| {
 					@field(result, field.name) =
 						nativeToLittle(field.type, @field(val, field.name));
 				}
 				break :blk result;
 			},
-			.int => std.mem.nativeToLittle(T, val),
-			.float => blk: {
+			.Int => std.mem.nativeToLittle(T, val),
+			.Float => blk: {
 				const IntT = std.meta.Int(.unsigned, @bitSizeOf(T));
-				const bits: IntT = @bitCast(val);
+				const bits: IntT = val;
 				const swapped = std.mem.nativeToLittle(IntT, bits);
 				break :blk @bitCast(swapped);
 			},
-			.array => blk: {
-				var out: T = undefined;
-				inline for (&out, 0..) |*elem, i| {
+			.Array => blk: {
+				const out: T = undefined;
+				inline for (out, 0..) |*elem, i| {
 					elem.* = nativeToLittle(@TypeOf(elem.*), val[i]);
 				}
 				break :blk out;
