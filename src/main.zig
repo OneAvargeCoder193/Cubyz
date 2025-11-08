@@ -79,6 +79,7 @@ var supportsANSIColors: bool = undefined;
 var openingErrorWindow: bool = false;
 // overwrite the log function:
 pub const std_options: std.Options = .{ // MARK: std_options
+	.fmt_max_depth = 20,
 	.log_level = .debug,
 	.logFn = struct {
 		pub fn logFn(

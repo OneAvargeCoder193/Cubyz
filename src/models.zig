@@ -35,54 +35,6 @@ pub const QuadInfo = extern struct {
 	}
 };
 
-pub fn getQuadNormalWasm(wasm: *main.wasm.WasmInstance, quad: u16, x: u32, y: u32, z: u32) void {
-	const normal = quads.items[quad].normal;
-	wasm.setMemory(f32, normal[0], x);
-	wasm.setMemory(f32, normal[1], y);
-	wasm.setMemory(f32, normal[2], z);
-}
-
-pub fn setQuadNormalWasm(_: *main.wasm.WasmInstance, quad: u16, norm: [3]f32) void {
-	quads.items[quad].normal = norm;
-}
-
-pub fn getQuadCornerWasm(wasm: *main.wasm.WasmInstance, quad: u16, i: u32, x: u32, y: u32, z: u32) void {
-	const corner = quads.items[quad].corners[i];
-	wasm.setMemory(f32, corner[0], x);
-	wasm.setMemory(f32, corner[1], y);
-	wasm.setMemory(f32, corner[2], z);
-}
-
-pub fn setQuadCornerWasm(_: *main.wasm.WasmInstance, quad: u16, i: u32, corner: [3]f32) void {
-	quads.items[quad].corners[i] = corner;
-}
-
-pub fn getQuadCornerUVWasm(wasm: *main.wasm.WasmInstance, quad: u16, i: u32, x: u32, y: u32) void {
-	const uv = quads.items[quad].cornerUV[i];
-	wasm.setMemory(f32, uv[0], x);
-	wasm.setMemory(f32, uv[1], y);
-}
-
-pub fn setQuadCornerUVWasm(_: *main.wasm.WasmInstance, quad: u16, i: u32, uv: [2]f32) void {
-	quads.items[quad].cornerUV[i] = uv;
-}
-
-pub fn getQuadTextureSlotWasm(_: *main.wasm.WasmInstance, quad: u16) u32 {
-	return quads.items[quad].textureSlot;
-}
-
-pub fn setQuadTextureSlotWasm(_: *main.wasm.WasmInstance, quad: u16, texSlot: u32) void {
-	quads.items[quad].textureSlot = texSlot;
-}
-
-pub fn getQuadOpaqueInLodWasm(_: *main.wasm.WasmInstance, quad: u16) u32 {
-	return quads.items[quad].opaqueInLod;
-}
-
-pub fn setQuadOpaqueInLodWasm(_: *main.wasm.WasmInstance, quad: u16, opaqueInLod: u32) void {
-	quads.items[quad].opaqueInLod = opaqueInLod;
-}
-
 const ExtraQuadInfo = struct {
 	faceNeighbor: ?Neighbor,
 	isFullQuad: bool,
@@ -127,7 +79,7 @@ pub const ModelIndex = enum(u32) {
 pub const QuadIndex = enum(u16) {
 	_,
 
-	pub fn quadInfo(self: QuadIndex) *const QuadInfo {
+	pub fn quadInfo(self: QuadIndex) *QuadInfo {
 		return &quads.items[@intFromEnum(self)];
 	}
 
@@ -711,21 +663,37 @@ pub fn getModelIndex(string: []const u8) ModelIndex {
 	};
 }
 
+pub fn modelInitWasm(_: *main.wasm.WasmInstance, quadByteList: []u8) u32 {
+	const len = @divExact(quadByteList.len, @sizeOf(QuadInfo));
+	const quadList = main.stackAllocator.alloc(QuadInfo, len);
+	defer main.stackAllocator.free(quadList);
+	for(quadList, 0..) |*quad, i| {
+		const quadInfo = std.mem.bytesAsValue(QuadInfo, quadByteList[i*@sizeOf(QuadInfo)..i*@sizeOf(QuadInfo)+@sizeOf(QuadInfo)]).*;
+		quad.* = main.wasm.WasmInstance.littleToNative(QuadInfo, quadInfo);
+	}
+	std.debug.print("MODEL INIT: {any}\n", .{quadList});
+	return @intFromEnum(Model.init(quadList));
+}
+
 pub fn getModelFromIdWasm(_: *main.wasm.WasmInstance, string: []const u8) u32 {
 	return @intFromEnum(getModelIndex(string));
 }
 
-pub fn transformModelWasm(instance: *main.wasm.WasmInstance, index: u32, funcName: []const u8) u32 {
-	const model: ModelIndex = @enumFromInt(index);
-	var quadList = main.List(QuadInfo).init(main.stackAllocator);
-	defer quadList.deinit();
-	model.model().getRawFaces(&quadList);
-	for(quadList.items) |*quadInfo| {
-		const quad = addQuad(quadInfo.*) catch unreachable;
-		instance.invoke(funcName, .{@as(u16, @intFromEnum(quad))}, void) catch unreachable;
-		quadInfo.* = quad.quadInfo().*;
-	}
-	return @intFromEnum(Model.init(quadList.items));
+pub fn getRawFacesWasm(instance: *main.wasm.WasmInstance, index: u32, len: u32) u32 {
+	var faces = main.List(QuadInfo).init(main.stackAllocator);
+	defer faces.deinit();
+	@as(ModelIndex, @enumFromInt(index)).model().getRawFaces(&faces);
+	var out = main.stackAllocator.alloc(u8, @sizeOf(QuadInfo) * faces.items.len);
+	defer main.stackAllocator.free(out);
+
+    for (faces.items, 0..) |val, i| {
+        const corrected = main.wasm.WasmInstance.nativeToLittle(QuadInfo, val);
+        const bytes = std.mem.asBytes(&corrected);
+		@memcpy(out[i*@sizeOf(QuadInfo)..i*@sizeOf(QuadInfo)+@sizeOf(QuadInfo)], bytes);
+    }
+
+	instance.setMemory(u32, @intCast(faces.items.len), len);
+    return instance.allocSlice(out);
 }
 
 var quads: main.List(QuadInfo) = undefined;
@@ -781,16 +749,6 @@ fn addQuad(info_: QuadInfo) error{Degenerate}!QuadIndex {
 	extraQuadInfos.append(extraQuadInfo);
 
 	return index;
-}
-
-pub fn createQuadInfoWasm(_: *main.wasm.WasmInstance, normal: [3]f32, corners: [4][3]f32, cornerUv: [4][2]f32, textureSlot: u32, opaqueInLod: u32) u16 {
-	return @intFromEnum(addQuad(.{
-		.normal = normal,
-		.corners = corners,
-		.cornerUV = cornerUv,
-		.textureSlot = textureSlot,
-		.opaqueInLod = opaqueInLod,
-	}) catch return std.math.maxInt(u16));
 }
 
 fn box(min: Vec3f, max: Vec3f, uvOffset: Vec2f) [6]QuadInfo {

@@ -64,19 +64,9 @@ fn loadMod(file: std.fs.File) !*wasm.WasmInstance {
 
 	// Rotation mode related functions
 	mod.addImport("registerRotationModeImpl", main.rotation.registerRotationModeWasm) catch {};
+	mod.addImport("modelInitImpl", main.models.modelInitWasm) catch {};
 	mod.addImport("getModelFromIdImpl", main.models.getModelFromIdWasm) catch {};
-	mod.addImport("transformModelImpl", main.models.transformModelWasm) catch {};
-	
-	mod.addImport("getQuadNormalImpl", main.models.getQuadNormalWasm) catch {};
-	mod.addImport("setQuadNormalImpl", main.models.setQuadNormalWasm) catch {};
-	mod.addImport("getQuadCornerImpl", main.models.getQuadCornerWasm) catch {};
-	mod.addImport("setQuadCornerImpl", main.models.setQuadCornerWasm) catch {};
-	mod.addImport("getQuadCornerUVImpl", main.models.getQuadCornerUVWasm) catch {};
-	mod.addImport("setQuadCornerUVImpl", main.models.setQuadCornerUVWasm) catch {};
-	mod.addImport("getQuadTextureSlotImpl", main.models.getQuadTextureSlotWasm) catch {};
-	mod.addImport("setQuadTextureSlotImpl", main.models.setQuadTextureSlotWasm) catch {};
-	mod.addImport("getQuadOpaqueInLodImpl", main.models.getQuadOpaqueInLodWasm) catch {};
-	mod.addImport("setQuadOpaqueInLodImpl", main.models.setQuadOpaqueInLodWasm) catch {};
+	mod.addImport("getRawFacesImpl", main.models.getRawFacesWasm) catch {};
 
 	// Gui window related functions
 	mod.addImport("registerWindowImpl", main.gui.registerWindowWasm) catch {};
