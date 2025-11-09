@@ -614,9 +614,7 @@ pub const BlockEntityTypes = struct {
 			defer StorageServer.mutex.unlock();
 			_ = StorageServer.removeAtIndex(dataIndex) orelse unreachable;
 		}
-		pub fn onInteract(pos: Vec3i, _: *Chunk) EventStatus {
-			if(main.KeyBoard.key("shift").pressed) return .ignored;
-
+		pub fn onInteract(pos: Vec3i, _: *Chunk) main.callbacks.Result {
 			const block = main.renderer.mesh_storage.getBlockFromRenderThread(pos[0], pos[1], pos[2]) orelse return .ignored;
 
 			const playerPosition = main.game.Player.getEyePosBlocking();
