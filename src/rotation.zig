@@ -131,7 +131,7 @@ pub const RotationMode = struct { // MARK: RotationMode
 		}
 	};
 
-	pub const CanBeChangedInto = union(enum) {
+	pub const CanBeChangedInto = union(enum(u32)) {
 		no: void,
 		yes: void,
 		yes_costsDurability: u16,
@@ -217,23 +217,48 @@ pub const RotationMode = struct { // MARK: RotationMode
 	}.wrapper) = .initFromCode(&DefaultFunctions.modifyBlock),
 
 	rayIntersectionFn: main.wasm.ModdableFunction(fn(block: Block, item: ?main.items.Item, relativePlayerPos: Vec3f, playerDir: Vec3f) ?RayIntersectionResult, struct{
-		fn wrapper(instance: *main.wasm.WasmInstance, _: *main.wasm.c.wasm_func_t, _: anytype) ?RayIntersectionResult {
+		fn wrapper(instance: *main.wasm.WasmInstance, func: *main.wasm.c.wasm_func_t, args: anytype) ?RayIntersectionResult {
 			instance.currentSide = .client;
-			@panic("rayIntersection is not implemented for wasm mods.");
+			const distance: u32 = instance.alloc(@sizeOf(f64));
+			defer instance.free(distance, @sizeOf(f64));
+			var min: [3]u32 = undefined;
+			for(0..3) |i| min[i] = instance.alloc(@sizeOf(f32));
+			defer for(0..3) |i| instance.free(min[i], @sizeOf(f32));
+			var max: [3]u32 = undefined;
+			for(0..3) |i| max[i] = instance.alloc(@sizeOf(f32));
+			defer for(0..3) |i| instance.free(max[i], @sizeOf(f32));
+			const face: u32 = instance.alloc(@sizeOf(u32));
+			defer instance.free(face, @sizeOf(u32));
+			instance.invokeFunc(func, .{args[0], args[2], args[3], distance, min, max, face}, void);
+			return .{
+				.distance = instance.getMemory(f64, distance),
+				.min = .{instance.getMemory(f32, min[0]), instance.getMemory(f32, min[1]), instance.getMemory(f32, min[2])},
+				.max = .{instance.getMemory(f32, max[0]), instance.getMemory(f32, max[1]), instance.getMemory(f32, max[2])},
+				.face = @enumFromInt(instance.getMemory(u32, face)),
+			};
 		}
 	}.wrapper) = .initFromCode(&DefaultFunctions.rayIntersection),
 
 	onBlockBreakingFn: main.wasm.ModdableFunction(fn(item: ?main.items.Item, relativePlayerPos: Vec3f, playerDir: Vec3f, currentData: *Block) void, struct{
-		fn wrapper(instance: *main.wasm.WasmInstance, _: *main.wasm.c.wasm_func_t, _: anytype) void {
+		fn wrapper(instance: *main.wasm.WasmInstance, func: *main.wasm.c.wasm_func_t, args: anytype) void {
 			instance.currentSide = .client;
-			@panic("onBlockBreaking is not implemented for wasm mods.");
+			instance.invokeFunc(func, .{args[1], args[2], args[3]}, void);
 		}
 	}.wrapper) = .initFromCode(&DefaultFunctions.onBlockBreaking),
 
 	canBeChangedIntoFn: main.wasm.ModdableFunction(fn(oldBlock: Block, newBlock: Block, item: main.items.ItemStack, shouldDropSourceBlockOnSuccess: *bool) CanBeChangedInto, struct{
-		fn wrapper(instance: *main.wasm.WasmInstance, _: *main.wasm.c.wasm_func_t, _: anytype) CanBeChangedInto {
+		fn wrapper(instance: *main.wasm.WasmInstance, func: *main.wasm.c.wasm_func_t, args: anytype) CanBeChangedInto {
 			instance.currentSide = .client;
-			@panic("canBeChangedInto is not implemented for wasm mods.");
+			const shouldDrop = instance.alloc(@sizeOf(bool));
+			defer instance.free(shouldDrop, @sizeOf(bool));
+			const value = instance.alloc(@sizeOf(u16));
+			defer instance.free(value, @sizeOf(u16));
+			const result = instance.invokeFunc(func, .{args[0], args[1], shouldDrop, value}, u32);
+			const typ = @as(std.meta.Tag(CanBeChangedInto), @enumFromInt(result));
+			return switch(typ) {
+				.no, .yes => |tag| @unionInit(CanBeChangedInto, @tagName(tag), {}),
+				inline else => |tag| @unionInit(CanBeChangedInto, @tagName(tag), value),
+			};
 		}
 	}.wrapper) = .initFromCode(&DefaultFunctions.canBeChangedInto),
 

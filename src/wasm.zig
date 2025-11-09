@@ -270,6 +270,14 @@ pub const WasmInstance = struct {
 				self.valueToWasm(bool, val != null),
 				if(val != null) self.valueToWasm(opt.child, val.?) else defaultVal(opt.child),
 			},
+			inline .array, .vector => |arr| blk: {
+				var array: [arr.len]c.wasm_val_t = undefined;
+				const childSize = getNumberArgs(arr.child);
+				inline for(0..arr.len) |i| {
+					array[i*childSize..i*childSize+childSize].* = self.valueToWasm(arr.child, arr[i]);
+				}
+				break: blk array;
+			},
 			else => std.debug.panic("Illegal type {s} inside wasm import\n", .{@typeName(T)}),
 		};
 	}
