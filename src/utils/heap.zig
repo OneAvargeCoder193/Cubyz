@@ -1,10 +1,51 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+const build_options = @import("build_options");
+
 const main = @import("main");
 
 var testingErrorHandlingAllocator = ErrorHandlingAllocator.init(std.testing.allocator);
 pub const testingAllocator = testingErrorHandlingAllocator.allocator();
+
+pub const allocators = struct { // MARK: allocators
+	pub var globalGpa = std.heap.GeneralPurposeAllocator(.{.thread_safe = true}){};
+	pub var handledGpa = ErrorHandlingAllocator.init(globalGpa.allocator());
+	pub var globalArenaAllocator: NeverFailingArenaAllocator = .init(handledGpa.allocator());
+	pub var worldArenaAllocator: NeverFailingArenaAllocator = undefined;
+	var worldArenaOpenCount: usize = 0;
+	var worldArenaMutex: std.Thread.Mutex = .{};
+
+	pub fn deinit() void {
+		std.log.info("Clearing global arena with {} MiB", .{globalArenaAllocator.arena.queryCapacity() >> 20});
+		globalArenaAllocator.deinit();
+		globalArenaAllocator = undefined;
+		if(globalGpa.deinit() == .leak) {
+			std.log.err("Memory leak", .{});
+		}
+		globalGpa = undefined;
+	}
+
+	pub fn createWorldArena() void {
+		worldArenaMutex.lock();
+		defer worldArenaMutex.unlock();
+		if(worldArenaOpenCount == 0) {
+			worldArenaAllocator = .init(handledGpa.allocator());
+		}
+		worldArenaOpenCount += 1;
+	}
+
+	pub fn destroyWorldArena() void {
+		worldArenaMutex.lock();
+		defer worldArenaMutex.unlock();
+		worldArenaOpenCount -= 1;
+		if(worldArenaOpenCount == 0) {
+			std.log.info("Clearing world arena with {} MiB", .{worldArenaAllocator.arena.queryCapacity() >> 20});
+			worldArenaAllocator.deinit();
+			worldArenaAllocator = undefined;
+		}
+	}
+};
 
 /// Allows for stack-like allocations in a fast and safe way.
 /// It is safe in the sense that a regular allocator will be used when the buffer is full.
@@ -444,6 +485,18 @@ pub const NeverFailingAllocator = struct { // MARK: NeverFailingAllocator
 	pub fn dupeZ(self: NeverFailingAllocator, comptime T: type, m: []const T) [:0]T {
 		return self.allocator.dupeZ(T, m) catch unreachable;
 	}
+
+	pub fn createArena(self: NeverFailingAllocator) NeverFailingAllocator {
+		const arenaPtr = self.create(NeverFailingArenaAllocator);
+		arenaPtr.* = NeverFailingArenaAllocator.init(self);
+		return arenaPtr.allocator();
+	}
+
+	pub fn destroyArena(self: NeverFailingAllocator, arena: NeverFailingAllocator) void {
+		const arenaAllocatorPtr: *NeverFailingArenaAllocator = @ptrCast(@alignCast(arena.allocator.ptr));
+		arenaAllocatorPtr.deinit();
+		self.destroy(arenaAllocatorPtr);
+	}
 };
 
 pub const NeverFailingArenaAllocator = struct { // MARK: NeverFailingArena
@@ -582,8 +635,7 @@ pub const GarbageCollection = struct { // MARK: GarbageCollection
 	threadlocal var lastSyncPointTime: i64 = undefined;
 	const FreeItem = struct {
 		ptr: *anyopaque,
-		extraData: usize = 0,
-		freeFunction: *const fn(*anyopaque, usize) void,
+		freeFunction: *const fn(*anyopaque) void,
 	};
 	threadlocal var lists: [4]main.ListUnmanaged(FreeItem) = undefined;
 
@@ -608,7 +660,7 @@ pub const GarbageCollection = struct { // MARK: GarbageCollection
 
 	fn freeItemsFromList(list: *main.ListUnmanaged(FreeItem)) void {
 		while(list.popOrNull()) |item| {
-			item.freeFunction(item.ptr, item.extraData);
+			item.freeFunction(item.ptr);
 		}
 	}
 
@@ -618,8 +670,10 @@ pub const GarbageCollection = struct { // MARK: GarbageCollection
 		if(old.cycle != threadCycle) removeThreadFromWaiting();
 		const newTime = std.time.milliTimestamp();
 		if(newTime -% lastSyncPointTime > 20_000) {
-			std.log.err("No sync point executed in {} ms for thread. Did you forget to add a sync point in the thread's main loop?", .{newTime -% lastSyncPointTime});
-			std.debug.dumpCurrentStackTrace(null);
+			if(!build_options.isTaggedRelease) {
+				std.log.err("No sync point executed in {} ms for thread. Did you forget to add a sync point in the thread's main loop?", .{newTime -% lastSyncPointTime});
+				std.debug.dumpCurrentStackTrace(null);
+			}
 		}
 		for(&lists) |*list| {
 			freeItemsFromList(list);

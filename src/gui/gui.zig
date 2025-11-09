@@ -227,14 +227,10 @@ pub fn save() void { // MARK: save()
 	defer oldZon.deinit(main.stackAllocator);
 
 	if(oldZon == .object) {
-		oldZon.join(guiZon);
-	} else {
-		oldZon.deinit(main.stackAllocator);
-		oldZon = guiZon;
-		guiZon = .null;
+		guiZon.join(.preferLeft, oldZon);
 	}
 
-	main.files.cubyzDir().writeZon("gui_layout.zig.zon", oldZon) catch |err| {
+	main.files.cubyzDir().writeZon("gui_layout.zig.zon", guiZon) catch |err| {
 		std.log.err("Could not write gui_layout.zig.zon: {s}", .{@errorName(err)});
 	};
 }
@@ -472,7 +468,7 @@ pub const textCallbacks = struct {
 	}
 };
 
-pub fn mainButtonPressed() void {
+pub fn mainButtonPressed(_: main.Window.Key.Modifiers) void {
 	inventory.update();
 	selectedWindow = null;
 	setSelectedTextInput(null);
@@ -495,7 +491,7 @@ pub fn mainButtonPressed() void {
 	}
 }
 
-pub fn mainButtonReleased() void {
+pub fn mainButtonReleased(_: main.Window.Key.Modifiers) void {
 	inventory.applyChanges(true);
 	const oldWindow = selectedWindow;
 	selectedWindow = null;
@@ -515,11 +511,11 @@ pub fn mainButtonReleased() void {
 	}
 }
 
-pub fn secondaryButtonPressed() void {
+pub fn secondaryButtonPressed(_: main.Window.Key.Modifiers) void {
 	inventory.update();
 }
 
-pub fn secondaryButtonReleased() void {
+pub fn secondaryButtonReleased(_: main.Window.Key.Modifiers) void {
 	inventory.applyChanges(false);
 }
 
@@ -606,8 +602,9 @@ pub const inventory = struct { // MARK: inventory
 	const Inventory = main.items.Inventory;
 	pub var carried: Inventory = undefined;
 	var carriedItemSlot: *ItemSlot = undefined;
-	var leftClickSlots: List(*ItemSlot) = undefined;
-	var rightClickSlots: List(*ItemSlot) = undefined;
+	var leftClickSlots: List(*ItemSlot) = .init(main.globalAllocator);
+	var rightClickSlots: List(*ItemSlot) = .init(main.globalAllocator);
+	var recipeItem: ?main.items.Item = null;
 	var initialized: bool = false;
 	const minCraftingCooldown = 20;
 	const maxCraftingCooldown = 400;
@@ -617,8 +614,6 @@ pub const inventory = struct { // MARK: inventory
 
 	pub fn init() void {
 		carried = Inventory.init(main.globalAllocator, 1, .normal, .{.hand = main.game.Player.id}, .{});
-		leftClickSlots = .init(main.globalAllocator);
-		rightClickSlots = .init(main.globalAllocator);
 		carriedItemSlot = ItemSlot.init(.{0, 0}, carried, 0, .default, .normal);
 		carriedItemSlot.renderFrame = false;
 		initialized = true;
@@ -629,8 +624,8 @@ pub const inventory = struct { // MARK: inventory
 		initialized = false;
 		carried.deinit(main.globalAllocator);
 		carriedItemSlot.deinit();
-		leftClickSlots.deinit();
-		rightClickSlots.deinit();
+		leftClickSlots.clearAndFree();
+		rightClickSlots.clearAndFree();
 	}
 
 	pub fn deleteItemSlotReferences(slot: *const ItemSlot) void {
@@ -658,8 +653,14 @@ pub const inventory = struct { // MARK: inventory
 	fn update() void {
 		if(!initialized) return;
 		if(hoveredItemSlot) |itemSlot| {
+			const mainGuiButton = main.KeyBoard.key("mainGuiButton");
+			const secondaryGuiButton = main.KeyBoard.key("secondaryGuiButton");
 			if(itemSlot.inventory.type == .crafting and itemSlot.mode == .takeOnly) {
-				if(main.KeyBoard.key("mainGuiButton").pressed) {
+				if(mainGuiButton.pressed) {
+					if(recipeItem == null and itemSlot.inventory._items[itemSlot.itemSlot].item != null) {
+						recipeItem = itemSlot.inventory._items[itemSlot.itemSlot].item.?.clone();
+					}
+					if(!std.meta.eql(itemSlot.inventory._items[itemSlot.itemSlot].item, recipeItem)) return;
 					const time = std.time.milliTimestamp();
 					if(!startedCrafting) {
 						startedCrafting = true;
@@ -669,30 +670,50 @@ pub const inventory = struct { // MARK: inventory
 					while(time -% nextCraftingAction >= 0) {
 						nextCraftingAction +%= craftingCooldown;
 						craftingCooldown -= (craftingCooldown - minCraftingCooldown)*craftingCooldown/1000;
-						itemSlot.inventory.depositOrSwap(itemSlot.itemSlot, carried);
+						if(mainGuiButton.modsOnPress.shift) {
+							itemSlot.inventory.depositToAny(itemSlot.itemSlot, main.game.Player.inventory, itemSlot.inventory.getAmount(itemSlot.itemSlot));
+						} else {
+							itemSlot.inventory.depositOrSwap(itemSlot.itemSlot, carried);
+						}
 					}
 					return;
 				}
 			}
 			if(itemSlot.mode != .normal) return;
 
-			if(carried.getAmount(0) == 0) return;
-			if(main.KeyBoard.key("mainGuiButton").pressed) {
-				for(leftClickSlots.items) |deliveredSlot| {
-					if(itemSlot == deliveredSlot) {
-						return;
+			if(mainGuiButton.pressed) {
+				if(mainGuiButton.modsOnPress.shift) {
+					if(itemSlot.inventory.id == main.game.Player.inventory.id) {
+						var iterator = std.mem.reverseIterator(openWindows.items);
+						while(iterator.next()) |window| {
+							if(window.shiftClickableInventory) |inv| {
+								itemSlot.inventory.depositToAny(itemSlot.itemSlot, inv, itemSlot.inventory.getAmount(itemSlot.itemSlot));
+								break;
+							}
+						}
+					} else {
+						itemSlot.inventory.depositToAny(itemSlot.itemSlot, main.game.Player.inventory, itemSlot.inventory.getAmount(itemSlot.itemSlot));
+					}
+				} else {
+					if(carried.getAmount(0) == 0) return;
+					for(leftClickSlots.items) |deliveredSlot| {
+						if(itemSlot == deliveredSlot) {
+							return;
+						}
+					}
+					const item = itemSlot.inventory.getItem(itemSlot.itemSlot);
+					if(item == null or (std.meta.eql(item, carried.getItem(0))) and itemSlot.inventory.getAmount(itemSlot.itemSlot) != item.?.stackSize()) {
+						leftClickSlots.append(itemSlot);
 					}
 				}
-				if(itemSlot.inventory.getItem(itemSlot.itemSlot) == null) {
-					leftClickSlots.append(itemSlot);
-				}
-			} else if(main.KeyBoard.key("secondaryGuiButton").pressed) {
+			} else if(secondaryGuiButton.pressed) {
+				if(carried.getAmount(0) == 0) return;
 				for(rightClickSlots.items) |deliveredSlot| {
 					if(itemSlot == deliveredSlot) {
 						return;
 					}
 				}
-				itemSlot.inventory.deposit(itemSlot.itemSlot, carried, 1);
+				itemSlot.inventory.deposit(itemSlot.itemSlot, carried, 0, 1);
 				rightClickSlots.append(itemSlot);
 			}
 		}
@@ -726,11 +747,17 @@ pub const inventory = struct { // MARK: inventory
 			if(rightClickSlots.items.len != 0) {
 				rightClickSlots.clearRetainingCapacity();
 			} else if(hoveredItemSlot) |hovered| {
-				hovered.inventory.takeHalf(hovered.itemSlot, carried);
+				if(hovered.inventory.type == .creative) {
+					carried.deposit(0, hovered.inventory, hovered.itemSlot, 1);
+				} else {
+					hovered.inventory.takeHalf(hovered.itemSlot, carried);
+				}
 			} else if(!hoveredAWindow) {
 				carried.dropOne(0);
 			}
 		}
+		if(recipeItem) |item| item.deinit();
+		recipeItem = null;
 	}
 
 	fn render(mousePos: Vec2f) void {
@@ -743,26 +770,29 @@ pub const inventory = struct { // MARK: inventory
 				const tooltip = item.getTooltip();
 				var textBuffer = graphics.TextBuffer.init(main.stackAllocator, tooltip, .{}, false, .left);
 				defer textBuffer.deinit();
-				var size = textBuffer.calculateLineBreaks(16, 300);
+				const fontSize = 16;
+				var size = textBuffer.calculateLineBreaks(fontSize, 300);
 				size[0] = 0;
 				for(textBuffer.lineBreaks.items) |lineBreak| {
 					size[0] = @max(size[0], lineBreak.width);
 				}
+				const windowSize = main.Window.getWindowSize()/@as(Vec2f, @splat(scale));
+				const xOffset = 18;
+				const padding: f32 = 1;
+				const border: f32 = padding + 1;
 				var pos = mousePos;
-				if(pos[0] + size[0] >= main.Window.getWindowSize()[0]/scale) {
-					pos[0] -= size[0];
+				if(pos[0] + size[0] + border + xOffset >= windowSize[0]) {
+					pos[0] -= size[0] + xOffset;
+				} else {
+					pos[0] += xOffset;
 				}
-				if(pos[1] + size[1] >= main.Window.getWindowSize()[1]/scale) {
-					pos[1] -= size[1];
-				}
-				pos = @max(pos, Vec2f{0, 0});
-				const border1: f32 = 2;
-				const border2: f32 = 1;
+				pos[1] = @min(pos[1] - fontSize, windowSize[1] - size[1] - border);
+				pos = @max(pos, Vec2f{border, border});
 				draw.setColor(0xffffff00);
-				draw.rect(pos - @as(Vec2f, @splat(border1)), size + @as(Vec2f, @splat(2*border1)));
+				draw.rect(pos - @as(Vec2f, @splat(border)), size + @as(Vec2f, @splat(2*border)));
 				draw.setColor(0xff000000);
-				draw.rect(pos - @as(Vec2f, @splat(border2)), size + @as(Vec2f, @splat(2*border2)));
-				textBuffer.render(pos[0], pos[1], 16);
+				draw.rect(pos - @as(Vec2f, @splat(padding)), size + @as(Vec2f, @splat(2*padding)));
+				textBuffer.render(pos[0], pos[1], fontSize);
 			}
 		};
 	}

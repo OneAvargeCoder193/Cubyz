@@ -236,7 +236,7 @@ pub const Sync = struct { // MARK: Sync
 					if(self.managed == .internallyManaged) {
 						if(self.inv.type.shouldDepositToUserOnClose()) {
 							const playerInventory = getInventoryFromSource(.{.playerInventory = user.id}) orelse @panic("Could not find player inventory");
-							Sync.ServerSide.executeCommand(.{.depositOrDrop = .{.dest = playerInventory, .source = self.inv}}, null);
+							Sync.ServerSide.executeCommand(.{.depositOrDrop = .{.dest = playerInventory, .source = self.inv, .dropLocation = user.player.pos}}, null);
 						}
 						self.deinit();
 					}
@@ -533,6 +533,7 @@ pub const Command = struct { // MARK: Command
 		drop = 5,
 		fillFromCreative = 6,
 		depositOrDrop = 7,
+		depositToAny = 11,
 		clear = 8,
 		updateBlock = 9,
 		addHealth = 10,
@@ -546,6 +547,7 @@ pub const Command = struct { // MARK: Command
 		drop: Drop,
 		fillFromCreative: FillFromCreative,
 		depositOrDrop: DepositOrDrop,
+		depositToAny: DepositToAny,
 		clear: Clear,
 		updateBlock: UpdateBlock,
 		addHealth: AddHealth,
@@ -576,10 +578,12 @@ pub const Command = struct { // MARK: Command
 
 		fn read(reader: *utils.BinaryReader, side: Side, user: ?*main.server.User) !InventoryAndSlot {
 			const id = try reader.readEnum(InventoryId);
-			return .{
+			const result: InventoryAndSlot = .{
 				.inv = Sync.getInventory(id, side, user) orelse return error.InventoryNotFound,
 				.slot = try reader.readInt(u32),
 			};
+			if(result.slot >= result.inv._items.len) return error.Invalid;
+			return result;
 		}
 	};
 
@@ -736,18 +740,11 @@ pub const Command = struct { // MARK: Command
 
 			switch(typ) {
 				.create => {
-					var out: SyncOperation = .{.create = .{
+					const out: SyncOperation = .{.create = .{
 						.inv = try InventoryAndSlot.read(reader, .client, null),
 						.amount = try reader.readInt(u16),
-						.item = null,
+						.item = if(reader.remaining.len > 0) try Item.fromBytes(reader) else null,
 					}};
-
-					if(reader.remaining.len != 0) {
-						const zon = ZonElement.parseFromString(main.stackAllocator, null, reader.remaining);
-						defer zon.deinit(main.stackAllocator);
-						out.create.item = try Item.init(zon);
-					}
-
 					return out;
 				},
 				.delete => {
@@ -794,12 +791,7 @@ pub const Command = struct { // MARK: Command
 					create.inv.write(&writer);
 					writer.writeInt(u16, create.amount);
 					if(create.item) |item| {
-						const zon = ZonElement.initObject(main.stackAllocator);
-						defer zon.deinit(main.stackAllocator);
-						item.insertIntoZon(main.stackAllocator, zon);
-						const string = zon.toStringEfficient(main.stackAllocator, &.{});
-						defer main.stackAllocator.free(string);
-						writer.writeSlice(string);
+						item.toBytes(&writer);
 					}
 				},
 				.delete => |delete| {
@@ -1082,13 +1074,12 @@ pub const Command = struct { // MARK: Command
 		return true;
 	}
 
-	fn tryCraftingTo(self: *Command, allocator: NeverFailingAllocator, dest: InventoryAndSlot, source: InventoryAndSlot, side: Side, user: ?*main.server.User) void { // MARK: tryCraftingTo()
+	fn tryCraftingTo(self: *Command, allocator: NeverFailingAllocator, dest: Inventory, source: InventoryAndSlot, side: Side, user: ?*main.server.User) void { // MARK: tryCraftingTo()
 		std.debug.assert(source.inv.type == .crafting);
-		std.debug.assert(dest.inv.type == .normal);
+		std.debug.assert(dest.type == .normal);
 		if(source.slot != source.inv._items.len - 1) return;
-		if(dest.ref().item != null and !std.meta.eql(dest.ref().item, source.ref().item)) return;
+		if(!dest.canHold(source.ref().*)) return;
 		if(source.ref().item == null) return; // Can happen if the we didn't receive the inventory information from the server yet.
-		if(dest.ref().amount + source.ref().amount > source.ref().item.?.stackSize()) return;
 
 		const playerInventory: Inventory = switch(side) {
 			.client => main.game.Player.inventory,
@@ -1138,11 +1129,21 @@ pub const Command = struct { // MARK: Command
 			}
 			std.debug.assert(remainingAmount == 0);
 		}
-		self.executeBaseOperation(allocator, .{.create = .{
-			.dest = dest,
-			.amount = source.ref().amount,
-			.item = source.ref().item,
-		}}, side);
+
+		var remainingAmount: u16 = source.ref().amount;
+		for(dest._items, 0..) |*destStack, destSlot| {
+			if(std.meta.eql(destStack.item, source.ref().item) or destStack.item == null) {
+				const amount = @min(source.ref().item.?.stackSize() - destStack.amount, remainingAmount);
+				self.executeBaseOperation(allocator, .{.create = .{
+					.dest = .{.inv = dest, .slot = @intCast(destSlot)},
+					.amount = amount,
+					.item = source.ref().item,
+				}}, side);
+				remainingAmount -= amount;
+				if(remainingAmount == 0) break;
+			}
+		}
+		std.debug.assert(remainingAmount == 0);
 	}
 
 	const Open = struct { // MARK: Open
@@ -1281,7 +1282,7 @@ pub const Command = struct { // MARK: Command
 				return;
 			}
 			if(self.dest.inv.type == .crafting) {
-				cmd.tryCraftingTo(allocator, self.source, self.dest, side, user);
+				cmd.tryCraftingTo(allocator, self.source.inv, self.dest, side, user);
 				return;
 			}
 			if(self.dest.inv.type == .workbench and self.dest.slot != 25 and self.dest.inv.type.workbench.slotInfos()[self.dest.slot].disabled) return;
@@ -1337,13 +1338,22 @@ pub const Command = struct { // MARK: Command
 		source: InventoryAndSlot,
 		amount: u16,
 
-		fn run(self: Deposit, allocator: NeverFailingAllocator, cmd: *Command, side: Side, _: ?*main.server.User, _: Gamemode) error{serverFailure}!void {
-			std.debug.assert(self.source.inv.type == .normal);
-			if(self.dest.inv.type == .creative) return;
+		fn run(self: Deposit, allocator: NeverFailingAllocator, cmd: *Command, side: Side, user: ?*main.server.User, gamemode: Gamemode) error{serverFailure}!void {
+			if(self.source.inv.type != .normal and (self.source.inv.type != .creative or self.dest.inv.type != .normal)) return error.serverFailure;
 			if(self.dest.inv.type == .crafting) return;
 			if(self.dest.inv.type == .workbench and (self.dest.slot == 25 or self.dest.inv.type.workbench.slotInfos()[self.dest.slot].disabled)) return;
 			if(self.dest.inv.type == .workbench and !canPutIntoWorkbench(self.source)) return;
 			const itemSource = self.source.ref().item orelse return;
+			if(self.source.inv.type == .creative) {
+				var amount: u16 = self.amount;
+				if(self.dest.ref().item) |carried| {
+					if(std.meta.eql(carried, itemSource)) {
+						amount = @min(self.dest.ref().amount + self.amount, itemSource.stackSize());
+					}
+				}
+				try FillFromCreative.run(.{.dest = self.dest, .item = itemSource, .amount = amount}, allocator, cmd, side, user, gamemode);
+				return;
+			}
 			if(self.dest.ref().item) |itemDest| {
 				if(std.meta.eql(itemDest, itemSource)) {
 					if(self.dest.ref().amount >= itemDest.stackSize()) return;
@@ -1355,10 +1365,11 @@ pub const Command = struct { // MARK: Command
 					}}, side);
 				}
 			} else {
+				const amount = @min(self.amount, self.source.ref().amount);
 				cmd.executeBaseOperation(allocator, .{.move = .{
 					.dest = self.dest,
 					.source = self.source,
-					.amount = self.amount,
+					.amount = amount,
 				}}, side);
 			}
 		}
@@ -1392,7 +1403,7 @@ pub const Command = struct { // MARK: Command
 				return;
 			}
 			if(self.source.inv.type == .crafting) {
-				cmd.tryCraftingTo(allocator, self.dest, self.source, side, user);
+				cmd.tryCraftingTo(allocator, self.dest.inv, self.source, side, user);
 				return;
 			}
 			if(self.source.inv.type == .workbench and self.source.slot != 25 and self.source.inv.type.workbench.slotInfos()[self.source.slot].disabled) return;
@@ -1458,7 +1469,7 @@ pub const Command = struct { // MARK: Command
 					.source = undefined,
 					.callbacks = .{},
 				};
-				cmd.tryCraftingTo(allocator, .{.inv = temp, .slot = 0}, self.source, side, user);
+				cmd.tryCraftingTo(allocator, temp, self.source, side, user);
 				std.debug.assert(cmd.baseOperations.pop().create.dest.inv._items.ptr == temp._items.ptr); // Remove the extra step from undo list (we cannot undo dropped items)
 				if(_items[0].item != null) {
 					if(side == .server) {
@@ -1556,6 +1567,7 @@ pub const Command = struct { // MARK: Command
 	const DepositOrDrop = struct { // MARK: DepositOrDrop
 		dest: Inventory,
 		source: Inventory,
+		dropLocation: Vec3d,
 
 		pub fn run(self: DepositOrDrop, allocator: NeverFailingAllocator, cmd: *Command, side: Side, user: ?*main.server.User, _: Gamemode) error{serverFailure}!void {
 			std.debug.assert(self.dest.type == .normal);
@@ -1588,8 +1600,8 @@ pub const Command = struct { // MARK: Command
 					}
 				}
 				if(side == .server) {
-					const direction = vec.rotateZ(vec.rotateX(Vec3f{0, 1, 0}, -user.?.player.rot[0]), -user.?.player.rot[2]);
-					main.server.world.?.drop(sourceStack.clone(), user.?.player.pos, direction, 20);
+					const direction = if(user) |_user| vec.rotateZ(vec.rotateX(Vec3f{0, 1, 0}, -_user.player.rot[0]), -_user.player.rot[2]) else Vec3f{0, 0, 0};
+					main.server.world.?.drop(sourceStack.clone(), self.dropLocation, direction, 20);
 				}
 				cmd.executeBaseOperation(allocator, .{.delete = .{
 					.source = .{.inv = self.source, .slot = @intCast(sourceSlot)},
@@ -1609,6 +1621,67 @@ pub const Command = struct { // MARK: Command
 			return .{
 				.dest = Sync.getInventory(destId, side, user) orelse return error.InventoryNotFound,
 				.source = Sync.getInventory(sourceId, side, user) orelse return error.InventoryNotFound,
+				.dropLocation = (user orelse return error.Invalid).player.pos,
+			};
+		}
+	};
+
+	const DepositToAny = struct { // MARK: DepositToAny
+		dest: Inventory,
+		source: InventoryAndSlot,
+		amount: u16,
+
+		fn run(self: DepositToAny, allocator: NeverFailingAllocator, cmd: *Command, side: Side, user: ?*main.server.User, _: Gamemode) error{serverFailure}!void {
+			if(self.dest.type == .creative) return;
+			if(self.dest.type == .crafting) return;
+			if(self.dest.type == .workbench) return;
+			if(self.source.inv.type == .crafting) {
+				cmd.tryCraftingTo(allocator, self.dest, self.source, side, user);
+				return;
+			}
+			const sourceStack = self.source.ref();
+			if(sourceStack.item == null) return;
+			if(self.amount > sourceStack.amount) return;
+
+			var remainingAmount = self.amount;
+			var selectedEmptySlot: ?u32 = null;
+			for(self.dest._items, 0..) |*destStack, destSlot| {
+				if(destStack.item == null and selectedEmptySlot == null) {
+					selectedEmptySlot = @intCast(destSlot);
+				}
+				if(std.meta.eql(destStack.item, sourceStack.item)) {
+					const amount = @min(sourceStack.item.?.stackSize() - destStack.amount, remainingAmount);
+					if(amount == 0) continue;
+					cmd.executeBaseOperation(allocator, .{.move = .{
+						.dest = .{.inv = self.dest, .slot = @intCast(destSlot)},
+						.source = self.source,
+						.amount = amount,
+					}}, side);
+					remainingAmount -= amount;
+					if(remainingAmount == 0) break;
+				}
+			}
+			if(remainingAmount > 0 and selectedEmptySlot != null) {
+				cmd.executeBaseOperation(allocator, .{.move = .{
+					.dest = .{.inv = self.dest, .slot = selectedEmptySlot.?},
+					.source = self.source,
+					.amount = remainingAmount,
+				}}, side);
+			}
+		}
+
+		fn serialize(self: DepositToAny, writer: *utils.BinaryWriter) void {
+			writer.writeEnum(InventoryId, self.dest.id);
+			self.source.write(writer);
+			writer.writeInt(u16, self.amount);
+		}
+
+		fn deserialize(reader: *utils.BinaryReader, side: Side, user: ?*main.server.User) !DepositToAny {
+			const destId = try reader.readEnum(InventoryId);
+			return .{
+				.dest = Sync.getInventory(destId, side, user) orelse return error.InventoryNotFound,
+				.source = try InventoryAndSlot.read(reader, side, user),
+				.amount = try reader.readInt(u16),
 			};
 		}
 	};
@@ -1963,7 +2036,7 @@ fn update(self: Inventory) void {
 	defer if(self.callbacks.onUpdateCallback) |cb| cb(self.source);
 	if(self.type == .workbench) {
 		self._items[self._items.len - 1].deinit();
-		self._items[self._items.len - 1].clear();
+		self._items[self._items.len - 1] = .{};
 		var availableItems: [25]?BaseItemIndex = undefined;
 		const slotInfos = self.type.workbench.slotInfos();
 
@@ -1994,8 +2067,8 @@ pub fn depositOrSwap(dest: Inventory, destSlot: u32, carried: Inventory) void {
 	Sync.ClientSide.executeCommand(.{.depositOrSwap = .{.dest = .{.inv = dest, .slot = destSlot}, .source = .{.inv = carried, .slot = 0}}});
 }
 
-pub fn deposit(dest: Inventory, destSlot: u32, carried: Inventory, amount: u16) void {
-	Sync.ClientSide.executeCommand(.{.deposit = .{.dest = .{.inv = dest, .slot = destSlot}, .source = .{.inv = carried, .slot = 0}, .amount = amount}});
+pub fn deposit(dest: Inventory, destSlot: u32, source: Inventory, sourceSlot: u32, amount: u16) void {
+	Sync.ClientSide.executeCommand(.{.deposit = .{.dest = .{.inv = dest, .slot = destSlot}, .source = .{.inv = source, .slot = sourceSlot}, .amount = amount}});
 }
 
 pub fn takeHalf(source: Inventory, sourceSlot: u32, carried: Inventory) void {
@@ -2006,12 +2079,16 @@ pub fn distribute(carried: Inventory, destinationInventories: []const Inventory,
 	const amount = carried._items[0].amount/destinationInventories.len;
 	if(amount == 0) return;
 	for(0..destinationInventories.len) |i| {
-		destinationInventories[i].deposit(destinationSlots[i], carried, @intCast(amount));
+		destinationInventories[i].deposit(destinationSlots[i], carried, 0, @intCast(amount));
 	}
 }
 
 pub fn depositOrDrop(dest: Inventory, source: Inventory) void {
-	Sync.ClientSide.executeCommand(.{.depositOrDrop = .{.dest = dest, .source = source}});
+	Sync.ClientSide.executeCommand(.{.depositOrDrop = .{.dest = dest, .source = source, .dropLocation = undefined}});
+}
+
+pub fn depositToAny(source: Inventory, sourceSlot: u32, dest: Inventory, amount: u16) void {
+	Sync.ClientSide.executeCommand(.{.depositToAny = .{.dest = dest, .source = .{.inv = source, .slot = sourceSlot}, .amount = amount}});
 }
 
 pub fn dropStack(source: Inventory, sourceSlot: u32) void {
@@ -2054,23 +2131,18 @@ pub fn getAmount(self: Inventory, slot: usize) u16 {
 	return self._items[slot].amount;
 }
 
-// TODO: Remove after #480
-pub fn loadFromZon(self: Inventory, zon: ZonElement) void {
-	for(self._items, 0..) |*stack, i| {
-		stack.clear();
-		var buf: [1024]u8 = undefined;
-		const stackZon = zon.getChild(buf[0..std.fmt.printInt(&buf, i, 10, .lower, .{})]);
-		if(stackZon == .object) {
-			stack.item = Item.init(stackZon) catch |err| {
-				const msg = stackZon.toStringEfficient(main.stackAllocator, "");
-				defer main.stackAllocator.free(msg);
-				std.log.err("Couldn't find item {s}: {s}", .{msg, @errorName(err)});
-				stack.clear();
-				continue;
-			};
-			stack.amount = stackZon.get(u16, "amount", 0);
+pub fn canHold(self: Inventory, sourceStack: ItemStack) bool {
+	if(sourceStack.amount == 0) return true;
+
+	var remainingAmount = sourceStack.amount;
+	for(self._items) |*destStack| {
+		if(std.meta.eql(destStack.item, sourceStack.item) or destStack.item == null) {
+			const amount = @min(sourceStack.item.?.stackSize() - destStack.amount, remainingAmount);
+			remainingAmount -= amount;
+			if(remainingAmount == 0) return true;
 		}
 	}
+	return false;
 }
 
 pub fn toBytes(self: Inventory, writer: *BinaryWriter) void {
@@ -2084,13 +2156,13 @@ pub fn fromBytes(self: Inventory, reader: *BinaryReader) void {
 	var remainingCount = reader.readVarInt(u32) catch 0;
 	for(self._items) |*stack| {
 		if(remainingCount == 0) {
-			stack.clear();
+			stack.* = .{};
 			continue;
 		}
 		remainingCount -= 1;
 		stack.* = ItemStack.fromBytes(reader) catch |err| {
 			std.log.err("Failed to read item stack from bytes: {s}", .{@errorName(err)});
-			stack.clear();
+			stack.* = .{};
 			continue;
 		};
 	}

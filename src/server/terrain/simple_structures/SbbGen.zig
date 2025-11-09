@@ -26,12 +26,14 @@ pub fn getHash(self: SbbGen) u64 {
 	return std.hash.Wyhash.hash(@intFromEnum(self.placeMode), self.structureRef.id);
 }
 
-pub fn loadModel(arenaAllocator: NeverFailingAllocator, parameters: ZonElement) *SbbGen {
+pub fn loadModel(parameters: ZonElement) ?*SbbGen {
 	const structureId = parameters.get(?[]const u8, "structure", null) orelse {
-		main.utils.panicWithMessage("Error loading generator 'cubyz:sbb' structure field is mandatory.", .{});
+		std.log.err("Error loading generator 'cubyz:sbb' structure field is mandatory.", .{});
+		return null;
 	};
 	const structureRef = sbb.getByStringId(structureId) orelse {
-		main.utils.panicWithMessage("Could not find structure building block with id '{s}'", .{structureId});
+		std.log.err("Could not find blueprint with id {s}. Structure will not be added.", .{structureId});
+		return null;
 	};
 	const rotationParam = parameters.getChild("rotation");
 	const rotation = sbb.Rotation.fromZon(rotationParam) catch |err| blk: {
@@ -41,7 +43,7 @@ pub fn loadModel(arenaAllocator: NeverFailingAllocator, parameters: ZonElement) 
 		}
 		break :blk .random;
 	};
-	const self = arenaAllocator.create(SbbGen);
+	const self = main.worldArena.create(SbbGen);
 	self.* = .{
 		.structureRef = structureRef,
 		.placeMode = std.meta.stringToEnum(Blueprint.PasteMode, parameters.get([]const u8, "placeMode", "degradable")) orelse Blueprint.PasteMode.degradable,
@@ -55,19 +57,21 @@ pub fn generate(self: *SbbGen, _: GenerationMode, x: i32, y: i32, z: i32, chunk:
 }
 
 fn placeSbb(self: *SbbGen, structure: *const sbb.StructureBuildingBlock, placementPosition: Vec3i, placementDirection: Neighbor, rotation: sbb.Rotation, chunk: *ServerChunk, seed: *u64) void {
-	const origin = structure.blueprints[0].originBlock;
+	const blueprints = &(structure.getBlueprints(seed).* orelse return);
+
+	const origin = blueprints[0].originBlock;
 	const blueprintRotation = rotation.apply(alignDirections(origin.direction(), placementDirection) catch |err| {
 		std.log.err("Could not align directions for structure '{s}' for directions '{s}'' and '{s}', error: {s}", .{structure.id, @tagName(origin.direction()), @tagName(placementDirection), @errorName(err)});
 		return;
 	});
-	const rotated = &structure.blueprints[@intFromEnum(blueprintRotation)];
+	const rotated = &blueprints[@intFromEnum(blueprintRotation)];
 	const rotatedOrigin = rotated.originBlock.pos();
 	const pastePosition = placementPosition - rotatedOrigin - placementDirection.relPos();
 
 	rotated.blueprint.pasteInGeneration(pastePosition, chunk, self.placeMode);
 
 	for(rotated.childBlocks) |childBlock| {
-		const child = structure.pickChild(childBlock, seed) orelse continue;
+		const child = structure.getChildStructure(childBlock) orelse continue;
 		const childRotation = rotation.getChildRotation(seed, child.rotation, childBlock.direction());
 		placeSbb(self, child, pastePosition + childBlock.pos(), childBlock.direction(), childRotation, chunk, seed);
 	}
@@ -88,5 +92,6 @@ fn alignDirections(input: Neighbor, desired: Neighbor) !sbb.Rotation.FixedRotati
 			alignTable[in.toInt()][out.toInt()] = error.NotPossibleToAlign;
 		}
 	};
-	return alignTable[input.toInt()][desired.toInt()];
+	const runtimeTable = alignTable;
+	return runtimeTable[input.toInt()][desired.toInt()];
 }

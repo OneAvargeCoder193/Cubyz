@@ -83,9 +83,7 @@ pub fn init() void {
 	worldFrameBuffer.updateSize(Window.width, Window.height, c.GL_RGB16F);
 	Bloom.init();
 	MeshSelection.init();
-	MenuBackGround.init() catch |err| {
-		std.log.err("Failed to initialize the Menu Background: {s}", .{@errorName(err)});
-	};
+	MenuBackGround.init();
 	Skybox.init();
 	chunk_meshing.init();
 	mesh_storage.init();
@@ -131,32 +129,32 @@ var worldFrameBuffer: graphics.FrameBuffer = undefined;
 pub var lastWidth: u31 = 0;
 pub var lastHeight: u31 = 0;
 var lastFov: f32 = 0;
-pub fn updateViewport(width: u31, height: u31, fov: f32) void {
+pub fn updateFov(fov: f32) void {
+	if(lastFov != fov) {
+		lastFov = fov;
+		game.projectionMatrix = Mat4f.perspective(std.math.degreesToRadians(fov), @as(f32, @floatFromInt(lastWidth))/@as(f32, @floatFromInt(lastHeight)), zNear, zFar);
+	}
+}
+pub fn updateViewport(width: u31, height: u31) void {
 	lastWidth = @intFromFloat(@as(f32, @floatFromInt(width))*main.settings.resolutionScale);
 	lastHeight = @intFromFloat(@as(f32, @floatFromInt(height))*main.settings.resolutionScale);
-	lastFov = fov;
-	game.projectionMatrix = Mat4f.perspective(std.math.degreesToRadians(fov), @as(f32, @floatFromInt(lastWidth))/@as(f32, @floatFromInt(lastHeight)), zNear, zFar);
 	worldFrameBuffer.updateSize(lastWidth, lastHeight, c.GL_RGB16F);
 	worldFrameBuffer.unbind();
 }
 
 pub fn render(playerPosition: Vec3d, deltaTime: f64) void {
 	// TODO: player bobbing
-	if(game.world) |world| {
-		// TODO: Handle colors and sun position in the world.
-		var ambient: Vec3f = undefined;
-		ambient[0] = @max(0.1, world.ambientLight);
-		ambient[1] = @max(0.1, world.ambientLight);
-		ambient[2] = @max(0.1, world.ambientLight);
+	// TODO: Handle colors and sun position in the world.
+	std.debug.assert(game.world != null);
+	var ambient: Vec3f = undefined;
+	ambient[0] = @max(0.1, game.world.?.ambientLight);
+	ambient[1] = @max(0.1, game.world.?.ambientLight);
+	ambient[2] = @max(0.1, game.world.?.ambientLight);
 
-		itemdrop.ItemDisplayManager.update(deltaTime);
-		renderWorld(world, ambient, game.fog.skyColor, playerPosition);
-		const startTime = std.time.milliTimestamp();
-		mesh_storage.updateMeshes(startTime + maximumMeshTime);
-	} else {
-		c.glViewport(0, 0, main.Window.width, main.Window.height);
-		MenuBackGround.render();
-	}
+	itemdrop.ItemDisplayManager.update(deltaTime);
+	renderWorld(game.world.?, ambient, game.fog.skyColor, playerPosition);
+	const startTime = std.time.milliTimestamp();
+	mesh_storage.updateMeshes(startTime + maximumMeshTime);
 }
 
 pub fn crosshairDirection(rotationMatrix: Mat4f, fovY: f32, width: u31, height: u31) Vec3f {
@@ -482,7 +480,7 @@ pub const MenuBackGround = struct {
 	var angle: f32 = 0;
 	var lastTime: i128 = undefined;
 
-	fn init() !void {
+	fn init() void {
 		lastTime = std.time.nanoTimestamp();
 		pipeline = graphics.Pipeline.init(
 			"assets/cubyz/shaders/background/vertex.vert",
@@ -530,11 +528,29 @@ pub const MenuBackGround = struct {
 		c.glBindBuffer(c.GL_ELEMENT_ARRAY_BUFFER, vbos[1]);
 		c.glBufferData(c.GL_ELEMENT_ARRAY_BUFFER, @intCast(indices.len*@sizeOf(c_int)), &indices, c.GL_STATIC_DRAW);
 
-		// Load a random texture from the backgrounds folder. The player may make their own pictures which can be chosen as well.
-		texture = .{.textureID = 0};
-		var dir = try main.files.cwd().openIterableDir("assets/backgrounds");
+		const backgroundPath = chooseBackgroundImagePath(main.stackAllocator) catch |err| {
+			std.log.err("Couldn't open background path: {s}", .{@errorName(err)});
+			texture = .{.textureID = 0};
+			return;
+		};
+		defer main.stackAllocator.free(backgroundPath);
+		texture = graphics.Texture.initFromFile(backgroundPath);
+	}
+
+	fn chooseBackgroundImagePath(allocator: main.heap.NeverFailingAllocator) ![]const u8 {
+		var dir = try main.files.cubyzDir().openIterableDir("backgrounds");
 		defer dir.close();
 
+		// Whenever the version changes copy over the new background image and display it.
+		if(!std.mem.eql(u8, settings.lastVersionString, settings.version.version)) {
+			const defaultImageData = try main.files.cwd().read(main.stackAllocator, "assets/cubyz/default_background.png");
+			defer main.stackAllocator.free(defaultImageData);
+			try dir.write("default_background.png", defaultImageData);
+
+			return std.fmt.allocPrint(allocator.allocator, "{s}/backgrounds/default_background.png", .{main.files.cubyzDirStr()}) catch unreachable;
+		}
+
+		// Otherwise load a random texture from the backgrounds folder. The player may make their own pictures which can be chosen as well.
 		var walker = dir.walk(main.stackAllocator);
 		defer walker.deinit();
 		var fileList = main.List([]const u8).init(main.stackAllocator);
@@ -551,13 +567,10 @@ pub const MenuBackGround = struct {
 			}
 		}
 		if(fileList.items.len == 0) {
-			std.log.warn("Couldn't find any background scene images in \"assets/backgrounds\".", .{});
-			return;
+			return error.NoBackgroundImagesFound;
 		}
 		const theChosenOne = main.random.nextIntBounded(u32, &main.seed, @as(u32, @intCast(fileList.items.len)));
-		const theChosenPath = std.fmt.allocPrint(main.stackAllocator.allocator, "assets/backgrounds/{s}", .{fileList.items[theChosenOne]}) catch unreachable;
-		defer main.stackAllocator.free(theChosenPath);
-		texture = graphics.Texture.initFromFile(theChosenPath);
+		return std.fmt.allocPrint(allocator.allocator, "{s}/backgrounds/{s}", .{main.files.cubyzDirStr(), fileList.items[theChosenOne]}) catch unreachable;
 	}
 
 	pub fn deinit() void {
@@ -571,6 +584,7 @@ pub const MenuBackGround = struct {
 	}
 
 	pub fn render() void {
+		c.glViewport(0, 0, main.Window.width, main.Window.height);
 		if(texture.textureID == 0) return;
 
 		// Use a simple rotation around the z axis, with a steadily increasing angle.
@@ -579,8 +593,6 @@ pub const MenuBackGround = struct {
 		lastTime = newTime;
 		const viewMatrix = Mat4f.rotationZ(angle);
 		pipeline.bind(null);
-		updateViewport(main.Window.width, main.Window.height, 70.0);
-
 		c.glUniformMatrix4fv(uniforms.viewMatrix, 1, c.GL_TRUE, @ptrCast(&viewMatrix));
 		c.glUniformMatrix4fv(uniforms.projectionMatrix, 1, c.GL_TRUE, @ptrCast(&game.projectionMatrix));
 
@@ -599,9 +611,11 @@ pub const MenuBackGround = struct {
 
 		const oldResolutionScale = main.settings.resolutionScale;
 		main.settings.resolutionScale = 1;
-		updateViewport(size, size, 90.0);
+		updateViewport(size, size);
+		updateFov(90.0);
+		defer updateFov(main.settings.fov);
 		main.settings.resolutionScale = oldResolutionScale;
-		defer updateViewport(Window.width, Window.height, settings.fov);
+		defer updateViewport(Window.width, Window.height);
 
 		var buffer: graphics.FrameBuffer = undefined;
 		buffer.init(true, c.GL_NEAREST, c.GL_REPEAT);
@@ -643,7 +657,7 @@ pub const MenuBackGround = struct {
 		}
 		c.glBindFramebuffer(c.GL_FRAMEBUFFER, 0);
 
-		const fileName = std.fmt.allocPrint(main.stackAllocator.allocator, "assets/backgrounds/{s}_{}.png", .{game.world.?.name, game.world.?.gameTime.load(.monotonic)}) catch unreachable;
+		const fileName = std.fmt.allocPrint(main.stackAllocator.allocator, "{s}/backgrounds/{s}_{}.png", .{main.files.cubyzDirStr(), game.world.?.name, game.world.?.gameTime.load(.monotonic)}) catch unreachable;
 		defer main.stackAllocator.free(fileName);
 		image.exportToFile(fileName) catch |err| {
 			std.log.err("Cannot write file {s} due to {s}", .{fileName, @errorName(err)});
@@ -913,9 +927,9 @@ pub const MeshSelection = struct { // MARK: MeshSelection
 			const block = mesh_storage.getBlockFromRenderThread(voxelPos[0], voxelPos[1], voxelPos[2]) orelse break;
 			if(block.typ != 0) blk: {
 				const fluidPlaceable = item != null and item.? == .baseItem and item.?.baseItem.hasTag(.fluidPlaceable);
-				for(block.blockTags()) |tag| {
-					if(tag == .fluid and !fluidPlaceable or tag == .air) break :blk; // TODO: Buckets could select fluids
-				}
+				const holdingTargetedBlock = item != null and item.? == .baseItem and item.?.baseItem.block() == block.typ;
+				if(block.hasTag(.air) and !holdingTargetedBlock) break :blk;
+				if(block.hasTag(.fluid) and !fluidPlaceable and !holdingTargetedBlock) break :blk; // TODO: Buckets could select fluids
 				const relativePlayerPos: Vec3f = @floatCast(pos - @as(Vec3d, @floatFromInt(voxelPos)));
 				if(block.mode().rayIntersection(block, item, relativePlayerPos, _dir)) |intersection| {
 					if(intersection.distance <= closestDistance) {
@@ -958,7 +972,7 @@ pub const MeshSelection = struct { // MARK: MeshSelection
 	}
 
 	fn canPlaceBlock(pos: Vec3i, block: main.blocks.Block) bool {
-		if(main.game.collision.collideWithBlock(block, pos[0], pos[1], pos[2], main.game.Player.getPosBlocking() + main.game.Player.outerBoundingBox.center(), main.game.Player.outerBoundingBox.extent() - @as(Vec3d, @splat(0.00005)), .{0, 0, 0}) != null) {
+		if(main.game.collision.collideWithBlock(block, pos[0], pos[1], pos[2], main.game.Player.getPosBlocking() + main.game.Player.outerBoundingBox.center(), main.game.Player.outerBoundingBox.extent(), .{0, 0, 0}) != null) {
 			return false;
 		}
 		return true; // TODO: Check other entities
@@ -1043,25 +1057,21 @@ pub const MeshSelection = struct { // MARK: MeshSelection
 				currentBlockProgress = 0;
 			}
 			const block = mesh_storage.getBlockFromRenderThread(selectedPos[0], selectedPos[1], selectedPos[2]) orelse return;
-			if(block.hasTag(.fluid) or block.hasTag(.air)) {
-				return;
-			}
+			const holdingTargetedBlock = stack.item != null and stack.item.? == .baseItem and stack.item.?.baseItem.block() == block.typ;
+			if((block.hasTag(.fluid) or block.hasTag(.air)) and !holdingTargetedBlock) return;
+
 			const relPos: Vec3f = @floatCast(lastPos - @as(Vec3d, @floatFromInt(selectedPos)));
 
 			main.items.Inventory.Sync.ClientSide.mutex.lock();
 			if(!game.Player.isCreative()) {
-				var damage: f32 = 1;
+				var damage: f32 = main.game.Player.defaultBlockDamage;
 				const isTool = stack.item != null and stack.item.? == .tool;
 				if(isTool) {
 					damage = stack.item.?.tool.getBlockDamage(block);
 				}
-				const isChisel = stack.item != null and stack.item.? == .baseItem and std.mem.eql(u8, stack.item.?.baseItem.id(), "cubyz:chisel");
-				if(isChisel and block.mode() == main.rotation.getByID("cubyz:stairs")) { // TODO: Remove once the chisel is a tool.
-					damage = block.blockHealth() + block.blockResistance();
-				}
 				damage -= block.blockResistance();
 				if(damage > 0) {
-					const swingTime = if(isTool) 1.0/stack.item.?.tool.swingSpeed else 0.5;
+					const swingTime = if(isTool and stack.item.?.tool.isEffectiveOn(block)) 1.0/stack.item.?.tool.swingSpeed else 0.5;
 					if(currentSwingTime != swingTime) {
 						currentSwingProgress = 0;
 						currentSwingTime = swingTime;

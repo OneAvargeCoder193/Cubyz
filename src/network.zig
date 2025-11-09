@@ -6,6 +6,7 @@ const assets = @import("assets.zig");
 const Block = @import("blocks.zig").Block;
 const chunk = @import("chunk.zig");
 const entity = @import("entity.zig");
+const particles = @import("particles.zig");
 const items = @import("items.zig");
 const Inventory = items.Inventory;
 const ItemStack = items.ItemStack;
@@ -22,7 +23,7 @@ const Vec3i = vec.Vec3i;
 const NeverFailingAllocator = main.heap.NeverFailingAllocator;
 const BlockUpdate = renderer.mesh_storage.BlockUpdate;
 
-//TODO: Might want to use SSL or something similar to encode the message
+// TODO: Might want to use SSL or something similar to encode the message
 
 const ms = 1_000;
 inline fn networkTimestamp() i64 {
@@ -667,6 +668,10 @@ pub const Protocols = struct {
 						const zon = ZonElement.parseFromString(main.stackAllocator, null, reader.remaining);
 						defer zon.deinit(main.stackAllocator);
 						const name = zon.get([]const u8, "name", "unnamed");
+						if(!std.unicode.utf8ValidateSlice(name)) {
+							std.log.err("Received player name with invalid UTF-8 characters.", .{});
+							return error.Invalid;
+						}
 						if(name.len > 500 or main.graphics.TextBuffer.Parser.countVisibleCharacters(name) > 50) {
 							std.log.err("Player has too long name with {}/{} characters.", .{main.graphics.TextBuffer.Parser.countVisibleCharacters(name), name.len});
 							return error.Invalid;
@@ -710,8 +715,8 @@ pub const Protocols = struct {
 					},
 					.assets => {
 						std.log.info("Received assets.", .{});
-						main.files.cwd().deleteTree("serverAssets") catch {}; // Delete old assets.
-						var dir = try main.files.cwd().openDir("serverAssets");
+						main.files.cubyzDir().deleteTree("serverAssets") catch {}; // Delete old assets.
+						var dir = try main.files.cubyzDir().openDir("serverAssets");
 						defer dir.close();
 						try utils.Compression.unpack(dir, reader.remaining);
 					},
@@ -744,7 +749,13 @@ pub const Protocols = struct {
 			conn.send(.fast, id, data);
 
 			conn.mutex.lock();
-			conn.handShakeWaiting.wait(&conn.mutex);
+			while(true) {
+				conn.handShakeWaiting.timedWait(&conn.mutex, 16_000_000) catch {
+					main.heap.GarbageCollection.syncPoint();
+					continue;
+				};
+				break;
+			}
 			if(conn.connectionState.load(.monotonic) == .disconnectDesired) return error.DisconnectedByServer;
 			conn.mutex.unlock();
 		}
@@ -1026,6 +1037,7 @@ pub const Protocols = struct {
 			worldEditPos = 2,
 			time = 3,
 			biome = 4,
+			particles = 5,
 		};
 
 		const WorldEditPosition = enum(u2) {
@@ -1041,6 +1053,7 @@ pub const Protocols = struct {
 					main.items.Inventory.Sync.setGamemode(null, try reader.readEnum(main.game.Gamemode));
 				},
 				.teleport => {
+					if(conn.isServerSide()) return error.InvalidPacket;
 					game.Player.setPosBlocking(try reader.readVec(Vec3d));
 				},
 				.worldEditPos => {
@@ -1098,6 +1111,18 @@ pub const Protocols = struct {
 						}
 					}
 				},
+				.particles => {
+					if(conn.manager.world) |_| {
+						const sliceSize = try reader.readInt(u16);
+						const particleId = try reader.readSlice(sliceSize);
+						const pos = try reader.readVec(Vec3d);
+						const collides = try reader.readBool();
+						const count = try reader.readInt(u32);
+
+						const emitter: particles.Emitter = .init(particleId, collides);
+						particles.ParticleSystem.addParticlesFromNetwork(emitter, pos, count);
+					}
+				},
 			}
 		}
 
@@ -1138,6 +1163,21 @@ pub const Protocols = struct {
 			conn.send(.fast, id, writer.data.items);
 		}
 
+		pub fn sendParticles(conn: *Connection, particleId: []const u8, pos: Vec3d, collides: bool, count: u32) void {
+			const bufferSize = particleId.len*8 + 32;
+			var writer = utils.BinaryWriter.initCapacity(main.stackAllocator, bufferSize);
+			defer writer.deinit();
+
+			writer.writeEnum(UpdateType, .particles);
+			writer.writeInt(u16, @intCast(particleId.len));
+			writer.writeSlice(particleId);
+			writer.writeVec(Vec3d, pos);
+			writer.writeBool(collides);
+			writer.writeInt(u32, count);
+
+			conn.send(.fast, id, writer.data.items);
+		}
+
 		pub fn sendTime(conn: *Connection, world: *const main.server.ServerWorld) void {
 			var writer = utils.BinaryWriter.initCapacity(main.stackAllocator, 13);
 			defer writer.deinit();
@@ -1153,6 +1193,10 @@ pub const Protocols = struct {
 		pub const asynchronous = false;
 		fn receive(conn: *Connection, reader: *utils.BinaryReader) !void {
 			const msg = reader.remaining;
+			if(!std.unicode.utf8ValidateSlice(msg)) {
+				std.log.err("Received chat message with invalid UTF-8 characters.", .{});
+				return error.Invalid;
+			}
 			if(conn.user) |user| {
 				if(msg.len > 10000 or main.graphics.TextBuffer.Parser.countVisibleCharacters(msg) > 1000) {
 					std.log.err("Received too long chat message with {}/{} characters.", .{main.graphics.TextBuffer.Parser.countVisibleCharacters(msg), msg.len});
@@ -1165,7 +1209,7 @@ pub const Protocols = struct {
 		}
 
 		pub fn send(conn: *Connection, msg: []const u8) void {
-			conn.send(.fast, id, msg);
+			conn.send(.lossy, id, msg);
 		}
 	};
 	pub const lightMapRequest = struct {
@@ -1547,7 +1591,10 @@ pub const Connection = struct { // MARK: Connection
 					ProtocolTask.schedule(conn, protocolIndex, self.protocolBuffer.items);
 				} else {
 					var reader = utils.BinaryReader.init(self.protocolBuffer.items);
-					try protocolReceive(conn, &reader);
+					protocolReceive(conn, &reader) catch |err| {
+						std.log.debug("Got error while executing protocol {} with data {any}", .{protocolIndex, self.protocolBuffer.items});
+						return err;
+					};
 				}
 
 				_ = Protocols.bytesReceived[protocolIndex].fetchAdd(self.protocolBuffer.items.len, .monotonic);
@@ -2046,6 +2093,7 @@ pub const Connection = struct { // MARK: Connection
 			if(@errorReturnTrace()) |trace| {
 				std.log.info("{f}", .{trace});
 			}
+			std.log.debug("Packet data: {any}", .{data});
 			self.disconnect();
 		};
 	}

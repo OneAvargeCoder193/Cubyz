@@ -144,13 +144,15 @@ pub const User = struct { // MARK: User
 		std.debug.assert(self.inventoryClientToServerIdMap.count() == 0); // leak
 		self.inventoryClientToServerIdMap.deinit();
 
-		world.?.savePlayer(self) catch |err| {
-			std.log.err("Failed to save player: {s}", .{@errorName(err)});
-			return;
-		};
+		if(self.inventory != null) {
+			world.?.savePlayer(self) catch |err| {
+				std.log.err("Failed to save player: {s}", .{@errorName(err)});
+				return;
+			};
 
-		if(self.inventory) |inv| main.items.Inventory.Sync.ServerSide.destroyExternallyManagedInventory(inv);
-		if(self.handInventory) |inv| main.items.Inventory.Sync.ServerSide.destroyExternallyManagedInventory(inv);
+			main.items.Inventory.Sync.ServerSide.destroyExternallyManagedInventory(self.inventory.?);
+			main.items.Inventory.Sync.ServerSide.destroyExternallyManagedInventory(self.handInventory.?);
+		}
 
 		self.worldEditData.deinit();
 
@@ -302,6 +304,7 @@ var lastTime: i128 = undefined;
 pub var thread: ?std.Thread = null;
 
 fn init(name: []const u8, singlePlayerPort: ?u16) void { // MARK: init()
+	main.heap.allocators.createWorldArena();
 	std.debug.assert(world == null); // There can only be one world.
 	command.init();
 	users = .init(main.globalAllocator);
@@ -356,6 +359,7 @@ fn deinit() void {
 	main.items.Inventory.Sync.ServerSide.deinit();
 
 	command.deinit();
+	main.heap.allocators.destroyWorldArena();
 }
 
 pub fn getUserListAndIncreaseRefCount(allocator: main.heap.NeverFailingAllocator) []*User {
