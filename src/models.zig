@@ -732,13 +732,8 @@ var quads: main.List(QuadInfo) = undefined;
 var extraQuadInfos: main.List(ExtraQuadInfo) = undefined;
 var models: main.utils.VirtualList(Model, 1 << 20) = undefined;
 
-var quadDeduplication: std.AutoHashMap([@sizeOf(QuadInfo)]u8, QuadIndex) = undefined;
-
 fn addQuad(info_: QuadInfo) error{Degenerate}!QuadIndex {
 	var info = info_;
-	if(quadDeduplication.get(std.mem.toBytes(info))) |id| {
-		return id;
-	}
 	// Check if it's degenerate:
 	var cornerEqualities: u32 = 0;
 	for(0..4) |i| {
@@ -754,7 +749,6 @@ fn addQuad(info_: QuadInfo) error{Degenerate}!QuadIndex {
 		info.opaqueInLod = @intFromBool(Model.getFaceNeighbor(&info) != null);
 	}
 	quads.append(info);
-	quadDeduplication.put(std.mem.toBytes(info), index) catch unreachable;
 
 	var extraQuadInfo: ExtraQuadInfo = undefined;
 	extraQuadInfo.faceNeighbor = Model.getFaceNeighbor(&info);
@@ -862,7 +856,6 @@ pub fn init() void {
 	models = .init();
 	quads = .init(main.globalAllocator);
 	extraQuadInfos = .init(main.globalAllocator);
-	quadDeduplication = .init(main.globalAllocator.allocator);
 
 	nameToIndex = .init(main.globalAllocator.allocator);
 
@@ -876,7 +869,6 @@ pub fn reset() void {
 	models.clearRetainingCapacity();
 	quads.clearRetainingCapacity();
 	extraQuadInfos.clearRetainingCapacity();
-	quadDeduplication.clearRetainingCapacity();
 	nameToIndex.clearRetainingCapacity();
 	nameToIndex.put("none", Model.init(&.{})) catch unreachable;
 }
@@ -890,7 +882,6 @@ pub fn deinit() void {
 	models.deinit();
 	quads.deinit();
 	extraQuadInfos.deinit();
-	quadDeduplication.deinit();
 }
 
 pub fn uploadModels() void {
