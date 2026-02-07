@@ -283,6 +283,155 @@ pub const BlockEntityTypes = struct {
 		pub fn renderAll(_: Mat4f, _: Vec3f, _: Vec3d) void {}
 	};
 
+	pub const LootChest = struct {
+		const StorageServer = BlockEntityDataStorage(struct {
+			text: []const u8,
+		});
+		const StorageClient = BlockEntityDataStorage(struct {
+			text: []const u8,
+			blockPos: Vec3i,
+
+			fn deinit(self: @This()) void {
+				main.globalAllocator.free(self.text);
+			}
+		});
+
+		pub const id = "loot_chest";
+		pub fn init() void {
+			StorageServer.init();
+			StorageClient.init();
+		}
+		pub fn deinit() void {
+			StorageServer.deinit();
+			StorageClient.deinit();
+		}
+		pub fn reset() void {
+			StorageServer.reset();
+			StorageClient.reset();
+		}
+
+		pub fn onUnloadClient(dataIndex: BlockEntityIndex) void {
+			StorageClient.mutex.lock();
+			defer StorageClient.mutex.unlock();
+			const entry = StorageClient.removeAtIndex(dataIndex) orelse unreachable;
+			entry.deinit();
+		}
+		pub fn onUnloadServer(dataIndex: BlockEntityIndex) void {
+			StorageServer.mutex.lock();
+			defer StorageServer.mutex.unlock();
+			const entry = StorageServer.removeAtIndex(dataIndex) orelse unreachable;
+			main.globalAllocator.free(entry.text);
+		}
+		pub fn onInteract(pos: Vec3i, chunk: *Chunk) main.callbacks.Result {
+			StorageClient.mutex.lock();
+			defer StorageClient.mutex.unlock();
+			const data = StorageClient.get(pos, chunk);
+			main.gui.windowlist.loot_chest_editor.openFromLootChestData(pos, if (data) |_data| _data.text else "");
+
+			return .handled;
+		}
+
+		pub fn onLoadClient(pos: Vec3i, chunk: *Chunk, reader: *BinaryReader) ErrorSet!void {
+			return updateClientData(pos, chunk, .{.update = reader});
+		}
+		pub fn updateClientData(pos: Vec3i, chunk: *Chunk, event: UpdateEvent) ErrorSet!void {
+			if (event == .remove or event.update.remaining.len == 0) {
+				const entry = StorageClient.remove(pos, chunk) orelse return;
+				entry.deinit();
+				return;
+			}
+
+			StorageClient.mutex.lock();
+			defer StorageClient.mutex.unlock();
+
+			const data = StorageClient.getOrPut(pos, chunk);
+			if (data.foundExisting) {
+				data.valuePtr.deinit();
+			}
+			data.valuePtr.* = .{
+				.blockPos = pos,
+				.text = main.globalAllocator.dupe(u8, event.update.remaining),
+			};
+		}
+
+		pub fn onLoadServer(pos: Vec3i, chunk: *Chunk, reader: *BinaryReader) ErrorSet!void {
+			return updateServerData(pos, chunk, .{.update = reader});
+		}
+		pub fn updateServerData(pos: Vec3i, chunk: *Chunk, event: UpdateEvent) ErrorSet!void {
+			if (event == .remove or event.update.remaining.len == 0) {
+				const entry = StorageServer.remove(pos, chunk) orelse return;
+				main.globalAllocator.free(entry.text);
+				return;
+			}
+
+			StorageServer.mutex.lock();
+			defer StorageServer.mutex.unlock();
+
+			const newText = event.update.remaining;
+
+			if (!std.unicode.utf8ValidateSlice(newText)) {
+				std.log.err("Received sign text with invalid UTF-8 characters.", .{});
+				return error.Invalid;
+			}
+
+			const data = StorageServer.getOrPut(pos, chunk);
+			if (data.foundExisting) main.globalAllocator.free(data.valuePtr.text);
+			data.valuePtr.text = main.globalAllocator.dupe(u8, event.update.remaining);
+		}
+
+		pub const onStoreServerToClient = onStoreServerToDisk;
+		pub fn onStoreServerToDisk(dataIndex: BlockEntityIndex, writer: *BinaryWriter) void {
+			StorageServer.mutex.lock();
+			defer StorageServer.mutex.unlock();
+
+			const data = StorageServer.getByIndex(dataIndex) orelse return;
+			writer.writeSlice(data.text);
+		}
+		pub fn getServerToClientData(pos: Vec3i, chunk: *Chunk, writer: *BinaryWriter) void {
+			StorageServer.mutex.lock();
+			defer StorageServer.mutex.unlock();
+
+			const data = StorageServer.get(pos, chunk) orelse return;
+			writer.writeSlice(data.text);
+		}
+
+		pub fn getClientToServerData(pos: Vec3i, chunk: *Chunk, writer: *BinaryWriter) void {
+			StorageClient.mutex.lock();
+			defer StorageClient.mutex.unlock();
+
+			const data = StorageClient.get(pos, chunk) orelse return;
+			writer.writeSlice(data.text);
+		}
+
+		pub fn updateTextFromClient(pos: Vec3i, newText: []const u8) void {
+			{
+				const mesh = main.renderer.mesh_storage.getMesh(.initFromWorldPos(pos, 1)) orelse return;
+				mesh.mutex.lock();
+				defer mesh.mutex.unlock();
+				const localPos = mesh.chunk.getLocalBlockPos(pos);
+				const block = mesh.chunk.data.getValue(localPos.toIndex());
+				const blockEntity = block.blockEntity() orelse return;
+				if (!std.mem.eql(u8, blockEntity.id, id)) return;
+
+				StorageClient.mutex.lock();
+				defer StorageClient.mutex.unlock();
+
+				const data = StorageClient.getOrPut(pos, mesh.chunk);
+				if (data.foundExisting) {
+					data.valuePtr.deinit();
+				}
+				data.valuePtr.* = .{
+					.blockPos = pos,
+					.text = main.globalAllocator.dupe(u8, newText),
+				};
+			}
+
+			main.network.protocols.blockEntityUpdate.sendClientDataUpdateToServer(main.game.world.?.conn, pos);
+		}
+
+		pub fn renderAll(_: Mat4f, _: Vec3f, _: Vec3d) void {}
+	};
+
 	pub const Sign = struct {
 		const StorageServer = BlockEntityDataStorage(struct {
 			text: []const u8,

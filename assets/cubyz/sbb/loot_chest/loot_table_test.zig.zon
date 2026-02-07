@@ -1,0 +1,5 @@
+.{
+	.blueprints = .{
+		.{.id = "cubyz:loot_chest/loot_table_test"},
+	},
+}

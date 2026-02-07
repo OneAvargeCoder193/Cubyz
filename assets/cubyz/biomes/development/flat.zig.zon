@@ -5,4 +5,12 @@
 	.maxHeight = 0,
 
 	.validPlayerSpawn = true,
+	
+	.structures = .{
+		.{
+			.id = "cubyz:sbb",
+			.structure = "cubyz:loot_chest/loot_table_test",
+			.chance = 0.1,
+		},
+	}
 }

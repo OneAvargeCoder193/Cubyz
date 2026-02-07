@@ -1,0 +1,19 @@
+.{
+    .rolls = .{.min = 5, .max = 10},
+    .items = .{
+        .{.item = "cubyz:apple", .amount = .{.min = 3, .max = 6}, .chance = 0.75},
+        .{
+            .tool = .{
+                .type = "cubyz:pickaxe",
+                .grid = .{
+                    .{"cubyz:iron_ingot", "cubyz:iron_ingot", "cubyz:iron_ingot", "cubyz:iron_ingot", "cubyz:iron_ingot"},
+                    .{"cubyz:iron_ingot", "cubyz:iron_ingot", null,               null,               null},
+                    .{"cubyz:iron_ingot", null,               "cubyz:iron_ingot", null,               null},
+                    .{"cubyz:iron_ingot", null,               null,               "cubyz:iron_ingot", null},
+                    .{"cubyz:iron_ingot", null,               null,               null,               "cubyz:iron_ingot"}
+                },
+            },
+            .chance = 0.25,
+        }
+    },
+}
