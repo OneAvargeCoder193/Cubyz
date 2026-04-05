@@ -151,7 +151,7 @@ pub fn generateSmoothNoise(allocator: NeverFailingAllocator, x: i32, y: i32, wid
 		while (x1 -% width -% x < 0) : (x1 +%= voxelSize) {
 			var y1 = y;
 			while (y1 -% y -% height < 0) : (y1 +%= voxelSize) {
-				map.ptr(@as(u32, @intCast(x1 -% x))/voxelSize, @as(u32, @intCast(y1 -% y))/voxelSize).* += @abs(context.perlin(x1 -% x0, y1 -% y0))*fac;
+				map.ptr(@as(u32, @intCast(x1 -% x))/voxelSize, @as(u32, @intCast(y1 -% y))/voxelSize).* += (context.perlin(x1 -% x0, y1 -% y0))*fac;
 			}
 		}
 		fac *= reductionFactor;

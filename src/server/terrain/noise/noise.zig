@@ -24,3 +24,5 @@ pub const BlueNoise = @import("BlueNoise.zig");
 pub const PerlinNoise = @import("PerlinNoise.zig");
 
 pub const ValueNoise = @import("ValueNoise.zig");
+
+pub const ErosionNoise = @import("ErosionNoise.zig");
