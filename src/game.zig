@@ -993,6 +993,24 @@ pub fn update(deltaTime: f64) void { // MARK: update()
 	biomeFog.fogLower = (biome.fogLower - biomeFog.fogLower)*t + biomeFog.fogLower;
 	biomeFog.fogHigher = (biome.fogHigher - biomeFog.fogHigher)*t + biomeFog.fogHigher;
 
+	for(0..8) |depth| {
+		const size: f32 = @floatFromInt((@as(i32, 1) << @as(u5, @intCast(depth))) * 10);
+		const emitter: particles.Emitter = .init("cubyz:rain", false, .{
+			.cube = .{
+				.size = .{size, size, 0}
+			}
+		}, .{
+			.lifeTime = .init(10.0, 10.0),
+			.randomizeRotation = false,
+			.speed = .init(0.0, 0.0),
+		}, .{
+			.direction = .{
+				0, 0, -1.0
+			}
+		});
+		particles.ParticleSystem.addParticlesFromNetwork(emitter, Player.super.pos*Vec3f{1, 1, 0} + Vec3f{0, 0, 512}, 10);
+	}
+
 	world.?.update();
 	particles.ParticleSystem.update(@floatCast(deltaTime));
 }
