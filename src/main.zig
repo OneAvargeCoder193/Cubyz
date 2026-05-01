@@ -22,6 +22,7 @@ pub const itemdrop = @import("itemdrop.zig");
 pub const items = @import("items.zig");
 pub const meta = @import("meta.zig");
 pub const migrations = @import("migrations.zig");
+pub const modding = @import("modding.zig");
 pub const models = @import("models.zig");
 pub const network = @import("network.zig");
 pub const physics = @import("physics.zig");
@@ -36,6 +37,10 @@ pub const Tag = tag.Tag;
 pub const utils = @import("utils.zig");
 pub const vec = @import("vec.zig");
 pub const ZonElement = @import("zon.zig").ZonElement;
+
+pub const wasi = @import("wasm/wasi.zig");
+pub const wasm = @import("wasm/wasm.zig");
+pub const wasmer = @import("wasm/wasmer.zig");
 
 pub const Window = @import("graphics/Window.zig");
 
@@ -454,6 +459,15 @@ pub fn main(args: std.process.Init.Minimal) void { // MARK: main()
 		files.init(homePath);
 	}
 	defer files.deinit();
+
+	modding.init() catch {
+		const err_msg = wasmer.lastError(std.heap.c_allocator) catch unreachable;
+		defer std.heap.c_allocator.free(err_msg);
+
+		std.log.err("{s}", .{err_msg});
+		return;
+	};
+	defer modding.deinit();
 
 	settings.init();
 	defer settings.deinit();

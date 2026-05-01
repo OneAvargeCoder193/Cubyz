@@ -12,6 +12,17 @@ fn linkLibraries(b: *std.Build, exe: *std.Build.Step.Compile, useLocalDeps: bool
 	const t = target.result;
 	const optimize = exe.root_module.optimize.?;
 
+	exe.root_module.link_libc = true;
+	exe.root_module.link_libcpp = true;
+
+	const wasmerDepName = b.fmt("wasmer_{s}_{s}", .{@tagName(target.result.cpu.arch), @tagName(target.result.os.tag)});
+	const wasmerDep = b.dependency(wasmerDepName, .{});
+	// exe.root_module.addIncludePath(wasmerDep.path("include"));
+	exe.root_module.addLibraryPath(wasmerDep.path("lib"));
+	exe.root_module.linkSystemLibrary("wasmer", .{
+		.preferred_link_mode = .static,
+	});
+
 	const depsLib = b.fmt("cubyz_deps_{s}-{s}-{s}", .{@tagName(t.cpu.arch), @tagName(t.os.tag), switch (t.os.tag) {
 		.linux => "musl",
 		.macos => "none",
@@ -66,6 +77,7 @@ fn linkLibraries(b: *std.Build, exe: *std.Build.Step.Compile, useLocalDeps: bool
 		exe.root_module.linkSystemLibrary("gdi32", .{});
 		exe.root_module.linkSystemLibrary("opengl32", .{});
 		exe.root_module.linkSystemLibrary("ws2_32", .{});
+		exe.root_module.linkSystemLibrary("userenv", .{});
 	} else if (t.os.tag == .macos) {
 		exe.root_module.linkFramework("Cocoa", .{});
 		exe.root_module.linkFramework("CoreFoundation", .{});

@@ -3,33 +3,50 @@ const std = @import("std");
 const main = @import("main");
 const User = main.server.User;
 
+const CommandFunc = main.modding.ModdableFunc(fn (args: []const u8, source: *User) void, struct {
+	pub fn wrapper(env: *main.wasm.InstanceEnv, func: *main.wasm.Func, args: []const u8, source: *User) void {
+		const str = env.dupe(main.modding.module, args) catch @panic("failed to alloc command args");
+		return func.call(void, .{@as(u32, @intCast(str - env.memory.data())), @as(u32, @intCast(args.len)), @as(u32, @intCast(source.playerIndex))}) catch @panic("failed to call wasm function");
+	}
+}.wrapper);
+
 pub const Command = struct {
-	exec: *const fn (args: []const u8, source: *User) void,
+	exec: CommandFunc,
 	name: []const u8,
 	description: []const u8,
 	usage: []const u8,
 	permissionPath: []const u8,
 };
 
-pub var commands: std.StringHashMap(Command) = undefined;
+pub var commands: std.StringHashMapUnmanaged(Command) = .empty;
 
 pub fn init() void {
-	commands = .init(main.globalAllocator.allocator);
 	const commandList = @import("_list.zig");
 	inline for (@typeInfo(commandList).@"struct".decls) |decl| {
-		commands.put(decl.name, .{
+		commands.put(main.globalAllocator.allocator, decl.name, .{
 			.name = decl.name,
 			.description = @field(commandList, decl.name).description,
 			.usage = @field(commandList, decl.name).usage,
-			.exec = &@field(commandList, decl.name).execute,
+			.exec = .{.native = &@field(commandList, decl.name).execute},
 			.permissionPath = "/command/" ++ decl.name,
 		}) catch unreachable;
 		std.log.debug("Registered command: '/{s}'", .{decl.name});
 	}
 }
 
+pub fn registerCommand(env: *main.wasm.InstanceEnv, func: *main.wasm.Func, name: []const u8, description: []const u8, usage: []const u8) void {
+	commands.put(main.globalAllocator.allocator, main.globalAllocator.dupe(u8, name), .{
+		.name = main.globalAllocator.dupe(u8, name),
+		.description = main.globalAllocator.dupe(u8, description),
+		.usage = main.globalAllocator.dupe(u8, usage),
+		.exec = .{.modded = .{.env = env, .func = func}},
+		.permissionPath = std.fmt.allocPrint(main.globalAllocator.allocator, "/command/{s}", .{name}) catch unreachable,
+	}) catch unreachable;
+	std.log.debug("Registered command: '/{s}'", .{name});
+}
+
 pub fn deinit() void {
-	commands.deinit();
+	commands.deinit(main.globalAllocator.allocator);
 }
 
 pub fn execute(msg: []const u8, source: *User) void {
@@ -41,7 +58,7 @@ pub fn execute(msg: []const u8, source: *User) void {
 			return;
 		}
 		source.sendMessage("#00ff00Executing Command /{s}", .{msg});
-		cmd.exec(msg[@min(end + 1, msg.len)..], source);
+		cmd.exec.call(.{msg[@min(end + 1, msg.len)..], source});
 	} else {
 		source.sendMessage("#ff0000Unrecognized Command \"{s}\"", .{command});
 	}
